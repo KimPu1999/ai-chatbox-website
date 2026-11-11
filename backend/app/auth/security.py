@@ -25,11 +25,13 @@ def verify_password(password: str, hashed: str) -> bool:
 
 
 def validate_password(password: str) -> None:
-    minimum = get_settings().password_min_length
+    settings = get_settings()
+    minimum = settings.password_min_length
+    maximum = settings.password_max_length
     if len(password) < minimum:
         raise ValueError(f"Password must be at least {minimum} characters")
-    if len(password) > 1024:
-        raise ValueError("Password is too long")
+    if len(password) > maximum:
+        raise ValueError(f"Password must be no more than {maximum} characters")
     if password.strip() != password:
         raise ValueError("Password cannot start or end with whitespace")
 

@@ -28,7 +28,8 @@ class Settings(BaseSettings):
     password_reset_expire_minutes: int = Field(default=30, gt=0)
     session_cookie_name: str = "pychat_session"
     csrf_cookie_name: str = "pychat_csrf"
-    password_min_length: int = Field(default=12, ge=8, le=128)
+    password_min_length: int = Field(default=8, ge=8, le=12)
+    password_max_length: int = Field(default=12, ge=8, le=12)
     auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=100)
     password_breach_check_enabled: bool = False
     password_breach_api_url: str = "https://api.pwnedpasswords.com/range"
@@ -53,6 +54,12 @@ class Settings(BaseSettings):
     def validate_production_cookie(self) -> "Settings":
         if self.environment.lower() in {"production", "staging"} and not self.cookie_secure:
             raise ValueError("COOKIE_SECURE must be true outside local development")
+        return self
+
+    @model_validator(mode="after")
+    def validate_password_bounds(self) -> "Settings":
+        if self.password_min_length > self.password_max_length:
+            raise ValueError("PASSWORD_MIN_LENGTH cannot exceed PASSWORD_MAX_LENGTH")
         return self
 
 

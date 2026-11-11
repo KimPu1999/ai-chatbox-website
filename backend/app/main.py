@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.router import router as v1_router
@@ -38,6 +39,15 @@ app.add_middleware(
 async def unhandled_exception_handler(_: Request, exc: Exception) -> JSONResponse:
     logger.exception("Unhandled application error: %s", exc)
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.exception_handler(SQLAlchemyError)
+async def database_exception_handler(_: Request, exc: SQLAlchemyError) -> JSONResponse:
+    logger.exception("Database request failed: %s", exc)
+    return JSONResponse(
+        status_code=503,
+        content={"detail": "Database unavailable. Check DATABASE_URL and run migrations."},
+    )
 
 
 @app.get("/health", tags=["health"])

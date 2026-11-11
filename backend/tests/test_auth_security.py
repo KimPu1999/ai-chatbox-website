@@ -23,11 +23,17 @@ def test_random_token_hash_is_only_valid_for_the_original_token() -> None:
     assert not token_matches("different-token", digest)
 
 
-def test_password_policy_allows_long_passphrases_and_rejects_short_values() -> None:
-    validate_password("this is a long passphrase")
+def test_password_policy_requires_eight_to_twelve_characters() -> None:
+    validate_password("secure123")
     try:
         validate_password("short")
     except ValueError as exc:
         assert "at least" in str(exc)
     else:
         raise AssertionError("short password was accepted")
+    try:
+        validate_password("this password is too long")
+    except ValueError as exc:
+        assert "no more than 12" in str(exc)
+    else:
+        raise AssertionError("long password was accepted")
