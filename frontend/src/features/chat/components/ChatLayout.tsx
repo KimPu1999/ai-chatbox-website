@@ -1,0 +1,8 @@
+import { useEffect, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { ChatHeader } from './ChatHeader';
+import { ChatSidebar } from './ChatSidebar';
+import { ChatWorkspace } from './ChatWorkspace';
+import { useConversations } from '../hooks/useConversations';
+import { useChatUIStore } from '../store/chatUIStore';
+export function ChatLayout() { const { conversationId } = useParams(); const navigate = useNavigate(); const [search, setSearch] = useState(''); const ui = useChatUIStore(); const conversations = useConversations(search); useEffect(() => { document.documentElement.classList.toggle('dark', ui.theme === 'dark'); }, [ui.theme]); const active = conversations.data?.find((item) => item.id === conversationId); const newChat = async () => { try { const created = await conversations.create.mutateAsync('New conversation'); navigate(`/chat/${created.id}`); ui.setSidebarOpen(false); } catch { /* query error state remains available */ } }; return <div className="flex min-h-screen bg-[#f8fafc] text-slate-900 dark:bg-[#11141a] dark:text-slate-100"><ChatSidebar open={ui.sidebarOpen} conversations={conversations.data || []} selectedId={conversationId} loading={conversations.isLoading} onClose={() => ui.setSidebarOpen(false)} onSearch={setSearch} onNew={() => void newChat()} onSelect={(id) => { navigate(`/chat/${id}`); ui.setSidebarOpen(false); }} onUpdate={(id, patch) => conversations.update.mutate({ id, patch })} onDelete={(id) => { conversations.remove.mutate(id); if (id === conversationId) navigate('/chat'); }} /><main className="flex min-h-screen min-w-0 flex-1 flex-col"><ChatHeader title={active?.title || 'New chat'} /><ChatWorkspace conversationId={conversationId} /></main></div>; }

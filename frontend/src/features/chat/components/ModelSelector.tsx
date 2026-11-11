@@ -1,0 +1,3 @@
+import { useQuery } from '@tanstack/react-query';
+import { listModels } from '../api/chatApi';
+export function ModelSelector() { const { data = [], isLoading } = useQuery({ queryKey: ['models'], queryFn: listModels, staleTime: 60_000 }); const available = data.filter((model) => model.available); return <select aria-label="AI model" disabled={!available.length} className="max-w-[180px] rounded-lg border border-slate-200 bg-transparent px-2 py-1.5 text-xs text-slate-500 outline-none focus:border-blue-400 dark:border-white/10">{available.length ? available.map((model) => <option key={model.id} value={model.id}>{model.name}</option>) : <option>{isLoading ? 'Loading models…' : 'No live models configured'}</option>}</select>; }

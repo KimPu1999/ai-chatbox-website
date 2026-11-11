@@ -8,9 +8,14 @@ from app.schemas import ConversationCreate
 
 
 async def list_conversations(
-    db: AsyncSession, user_id: UUID, *, limit: int = 50, offset: int = 0
+    db: AsyncSession,
+    user_id: UUID,
+    *,
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
 ) -> list[Conversation]:
-    return await list_for_user(db, user_id, limit=limit, offset=offset)
+    return await list_for_user(db, user_id, limit=limit, offset=offset, search=search)
 
 
 async def create_conversation(

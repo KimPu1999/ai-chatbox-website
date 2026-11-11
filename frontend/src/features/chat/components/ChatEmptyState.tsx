@@ -1,0 +1,1 @@
+export function ChatEmptyState() { return <div className="flex flex-1 items-center justify-center px-6 text-center"><div><p className="font-medium">No conversation selected</p><p className="mt-1 text-sm text-slate-500">Start a new chat or choose one from your history.</p></div></div>; }
