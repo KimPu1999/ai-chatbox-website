@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+# ruff: noqa: E501
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -36,6 +37,7 @@ class Settings(BaseSettings):
     email_verification_expire_minutes: int = Field(default=60, gt=0)
     password_reset_expire_minutes: int = Field(default=30, gt=0)
     session_cookie_name: str = "pychat_session"
+    platform_session_cookie_name: str = "pychat_platform_session"
     csrf_cookie_name: str = "pychat_csrf"
     password_min_length: int = Field(default=8, ge=8, le=12)
     password_max_length: int = Field(default=12, ge=8, le=12)
@@ -59,6 +61,12 @@ class Settings(BaseSettings):
     document_max_extracted_characters: int = Field(default=5_000_000, gt=0, le=50_000_000)
     document_processing_enabled: bool = True
     document_malware_scan_required: bool = False
+    platform_mfa_encryption_key: str | None = None
+    platform_mfa_issuer: str = "PyChat AI Platform"
+    platform_mfa_recent_minutes: int = Field(default=15, gt=0, le=120)
+    platform_bootstrap_enabled: bool = False
+    platform_bootstrap_environment: str = "local"
+    quota_reset_timezone: str = "UTC"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -96,6 +104,15 @@ class Settings(BaseSettings):
             raise ValueError(
                 "EMBEDDING_DIMENSIONS must remain 1536 until a re-embedding migration is applied"
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_platform_security(self) -> "Settings":
+        if self.environment.lower() in {"production", "staging"} and not self.platform_mfa_encryption_key:
+            raise ValueError("PLATFORM_MFA_ENCRYPTION_KEY must be configured outside local development")
+        if self.platform_bootstrap_enabled and self.environment.lower() in {"production", "staging"}:
+            if self.platform_bootstrap_environment != self.environment.lower():
+                raise ValueError("PLATFORM_BOOTSTRAP_ENVIRONMENT must match the deployment environment")
         return self
 
     @property

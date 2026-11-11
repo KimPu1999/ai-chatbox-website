@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select, update
@@ -6,7 +7,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.security import utc_now
 from app.core.config import get_settings
-from app.models import AIUsage, Conversation, GenerationRun, Message
+from app.models import (
+    AIUsage,
+    Conversation,
+    GenerationRun,
+    Message,
+    ModelPricingVersion,
+    QuotaPolicy,
+    UserQuotaOverride,
+)
 from app.services.context import build_context
 
 
@@ -31,6 +40,33 @@ async def active_run_count(db: AsyncSession, user_id: UUID) -> int:
         )
         or 0
     )
+
+
+async def effective_quota_limits(db: AsyncSession, user_id: UUID) -> dict[str, int | None]:
+    settings = get_settings()
+    limits: dict[str, int | None] = {
+        "requests_per_minute": settings.ai_max_requests_per_minute,
+        "daily_token_limit": settings.ai_daily_token_budget,
+        "concurrent_generation_limit": settings.ai_max_concurrent_generations,
+    }
+    policy = await db.scalar(
+        select(QuotaPolicy).where(
+            QuotaPolicy.scope == "global",
+            QuotaPolicy.scope_key == "default",
+            QuotaPolicy.enabled.is_(True),
+        )
+    )
+    if policy:
+        for key in limits:
+            value = getattr(policy, key)
+            if value is not None:
+                limits[key] = value
+    override = await db.get(UserQuotaOverride, user_id)
+    if override:
+        for key, value in override.limits.items():
+            if key in limits:
+                limits[key] = value
+    return limits
 
 
 async def daily_token_count(db: AsyncSession, user_id: UUID) -> int:
@@ -92,7 +128,9 @@ async def create_generation(
     conversation = await get_owned_conversation(db, user_id, conversation_id)
     if conversation is None:
         return None, None, []
-    if await active_run_count(db, user_id) >= get_settings().ai_max_concurrent_generations:
+    limits = await effective_quota_limits(db, user_id)
+    concurrency_limit = limits["concurrent_generation_limit"]
+    if concurrency_limit is not None and await active_run_count(db, user_id) >= concurrency_limit:
         raise ValueError("AI_CONCURRENCY_LIMIT")
     if regenerate:
         previous = await db.scalar(
@@ -193,6 +231,26 @@ async def append_usage(
     existing = await db.scalar(select(AIUsage).where(AIUsage.generation_run_id == run_id))
     if existing:
         return
+    now = utc_now()
+    pricing = await db.scalar(
+        select(ModelPricingVersion)
+        .where(
+            ModelPricingVersion.provider == "openai",
+            ModelPricingVersion.model_identifier == model,
+            ModelPricingVersion.effective_start <= now,
+            ModelPricingVersion.effective_end.is_(None)
+            | (ModelPricingVersion.effective_end > now),
+        )
+        .order_by(ModelPricingVersion.effective_start.desc())
+    )
+    estimated_cost = None
+    pricing_version = get_settings().ai_pricing_version
+    if pricing:
+        estimated_cost = (
+            Decimal(input_tokens) * Decimal(str(pricing.input_price_per_million))
+            + Decimal(output_tokens) * Decimal(str(pricing.output_price_per_million))
+        ) / Decimal(1_000_000)
+        pricing_version = pricing.pricing_version
     db.add(
         AIUsage(
             generation_run_id=run_id,
@@ -204,7 +262,8 @@ async def append_usage(
             total_tokens=total_tokens,
             provider_response_id=provider_response_id,
             usage_confirmed=confirmed,
-            pricing_version=get_settings().ai_pricing_version,
+            estimated_cost=estimated_cost,
+            pricing_version=pricing_version,
         )
     )
     await db.commit()

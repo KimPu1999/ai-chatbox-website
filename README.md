@@ -55,6 +55,8 @@ Phase 5 OpenAI Responses streaming, generation lifecycle, usage controls, and SS
 
 Phase 7 document upload, private storage, extraction, pgvector indexing, grounded retrieval, citation events, worker setup, limits, and privacy behavior are documented in [`docs/document-chat.md`](docs/document-chat.md) and [`docs/rag-architecture.md`](docs/rag-architecture.md).
 
+Phase 8 platform administration, MFA, permission enforcement, usage/cost analytics, quotas, storage monitoring, audit logs, health, and the bootstrap procedure are documented in [`docs/platform-admin.md`](docs/platform-admin.md), [`docs/platform-security.md`](docs/platform-security.md), and [`docs/usage-cost-accounting.md`](docs/usage-cost-accounting.md).
+
 The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 5 makes real provider calls only when `OPENAI_API_KEY` is configured. Phase 6 management APIs never broaden owner access and public share links expose immutable read-only snapshots only.
 
 For document processing with multiple workers, configure `REDIS_URL` and run `arq app.worker.WorkerSettings` from `backend`. Without an OpenAI key, uploads can be validated and parsed locally but embedding and grounded retrieval cannot complete. No paid OpenAI request is made by the test suite.

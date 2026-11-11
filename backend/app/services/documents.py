@@ -13,6 +13,7 @@ import io
 import re
 import unicodedata
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID, uuid4
 
@@ -27,6 +28,8 @@ from app.models import (
     Document,
     DocumentChunk,
     DocumentProcessingJob,
+    QuotaPolicy,
+    UserQuotaOverride,
 )
 from app.services.ai_provider import ProviderRequestError, ProviderUnavailable, get_openai_client
 
@@ -391,6 +394,35 @@ async def process_document_by_id(document_id: UUID) -> None:
             chunks = chunk_segments(parsed.segments)
             if not chunks:
                 raise DocumentError("DOCUMENT_EMPTY")
+            embedding_policy = await db.scalar(
+                select(QuotaPolicy).where(
+                    QuotaPolicy.scope == "global",
+                    QuotaPolicy.scope_key == "default",
+                    QuotaPolicy.enabled.is_(True),
+                )
+            )
+            embedding_budget = embedding_policy.embedding_token_budget if embedding_policy else None
+            override = await db.get(UserQuotaOverride, document.user_id)
+            if override and "embedding_token_budget" in override.limits:
+                embedding_budget = override.limits["embedding_token_budget"]
+            if embedding_budget is not None:
+                start_of_day = datetime.now(timezone.utc).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                used_embedding_tokens = await db.scalar(
+                    select(
+                        func.coalesce(func.sum(DocumentProcessingJob.embedding_tokens), 0)
+                    ).where(
+                        DocumentProcessingJob.user_id == document.user_id,
+                        DocumentProcessingJob.created_at >= start_of_day,
+                    )
+                ) or 0
+                estimated_tokens = sum(chunk.token_count for chunk in chunks)
+                if (
+                    embedding_budget == 0
+                    or used_embedding_tokens + estimated_tokens > embedding_budget
+                ):
+                    raise DocumentError("EMBEDDING_QUOTA_EXCEEDED")
             document.status = "embedding"
             job.progress = 55
             await db.commit()

@@ -1,6 +1,6 @@
 # PyChat AI database schema
 
-The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fields. Alembic revision `0008_documents_rag` adds the pgvector extension, private document metadata, versioned vector chunks, processing jobs, owner-bound conversation attachments and persisted message citations. Revision `0009_document_embedding_usage` adds per-processing-job embedding token accounting without replacing earlier revision history.
+The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fields. Alembic revision `0008_documents_rag` adds the pgvector extension, private document metadata, versioned vector chunks, processing jobs, owner-bound conversation attachments and persisted message citations. Revision `0009_document_embedding_usage` adds per-processing-job embedding token accounting. Revision `0010_platform_admin` adds the platform control-plane tables and additive platform-session/audit fields. Revision `0011_platform_schema_alignment` normalizes the named MFA uniqueness constraint without changing data.
 
 ## Tables
 
@@ -25,6 +25,15 @@ The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fi
 | `document_chunks` | Normalized source chunks and VECTOR(1536) embeddings | Composite document/user ownership |
 | `document_processing_jobs` | Durable parse/chunk/embed progress and retries | Composite document/user ownership |
 | `conversation_documents` | Owner-bound document attachments | Composite conversation/document/user ownership |
+| `platform_settings` | Versioned, safe application settings | Optional updater → `users` |
+| `platform_models` | Server-side model allowlist and defaults | Optional updater → `users` |
+| `model_pricing_versions` | Effective-dated Decimal pricing records | Optional creator → `users` |
+| `quota_policies` | Global and role-scoped limits | Optional updater → `users` |
+| `user_quota_overrides` | Per-user quota overrides | `user_id` → `users` |
+| `usage_aggregates_daily` | Rebuildable usage projection | Optional `user_id` → `users` |
+| `system_health_snapshots` | Safe bounded health observations | No private content |
+| `admin_mfa_credentials` | Encrypted TOTP secret and counters | `user_id` → `users` |
+| `admin_recovery_codes` | One-time recovery code hashes | MFA credential → credential |
 
 ## Ownership protection
 

@@ -1,0 +1,29 @@
+import { NavLink } from 'react-router-dom';
+import { Activity, BarChart3, Boxes, ChevronLeft, FileClock, Gauge, LogOut, Menu, Settings, Shield, Users, Wallet, X } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { useState } from 'react';
+import { platformLogout } from './api';
+
+const links = [
+  ['/platform/overview', 'Overview', Gauge], ['/platform/users', 'Users', Users], ['/platform/usage', 'Usage', BarChart3], ['/platform/costs', 'Costs', Wallet], ['/platform/models', 'Models', Boxes], ['/platform/quotas', 'Quotas', Shield], ['/platform/storage', 'Storage', FileClock], ['/platform/audit-logs', 'Audit logs', Activity], ['/platform/health', 'Health', Activity], ['/platform/settings', 'Settings', Settings],
+] as const;
+
+export function PlatformSidebar({ onClose }: { onClose?: () => void }) {
+  return <nav className="space-y-1" aria-label="Platform navigation">{links.map(([to, label, Icon]) => <NavLink key={to} to={to} onClick={onClose} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${isActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5'}`}><Icon size={17} />{label}</NavLink>)}</nav>;
+}
+
+export function PlatformHeader({ onOpen }: { onOpen: () => void }) {
+  return <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur dark:border-white/10 dark:bg-[#10131a]/90 sm:px-8"><button className="rounded-lg p-2 lg:hidden" aria-label="Open navigation" onClick={onOpen}><Menu size={20} /></button><div className="flex items-center gap-2 text-sm text-slate-500"><Shield size={16} className="text-blue-600" />Admin Control Center</div><span className="hidden rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 sm:inline">Protected workspace</span></header>;
+}
+
+export function PlatformLayout({ children }: { children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <div className="min-h-screen bg-slate-50 text-slate-900 dark:bg-[#10131a] dark:text-slate-100"><aside className={`fixed inset-y-0 left-0 z-30 w-64 border-r border-slate-200 bg-white p-4 transition-transform dark:border-white/10 dark:bg-[#151922] ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}><div className="flex items-center justify-between px-2 py-3"><div><p className="text-xs font-semibold uppercase tracking-[.22em] text-blue-600">PyChat</p><p className="font-semibold">Platform control</p></div><button className="rounded-lg p-2 lg:hidden" aria-label="Close navigation" onClick={() => setOpen(false)}><X size={18} /></button></div><nav className="mt-5 space-y-1" aria-label="Platform navigation">{links.map(([to, label, Icon]) => <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => `flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm ${isActive ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5'}`}><Icon size={17} />{label}</NavLink>)}</nav><button onClick={() => { void platformLogout().finally(() => { window.location.href = '/platform/login'; }); }} className="mt-8 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5"><LogOut size={17} />Sign out</button></aside><div className="lg:pl-64"><header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur dark:border-white/10 dark:bg-[#10131a]/90 sm:px-8"><button className="rounded-lg p-2 lg:hidden" aria-label="Open navigation" onClick={() => setOpen(true)}><Menu size={20} /></button><div className="flex items-center gap-2 text-sm text-slate-500"><Shield size={16} className="text-blue-600" />Admin Control Center</div><span className="hidden rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300 sm:inline">Protected workspace</span></header><main className="mx-auto max-w-7xl p-4 sm:p-8">{children}</main></div></div>;
+}
+
+export function MetricCard({ label, value, hint }: { label: string; value: ReactNode; hint?: string }) { return <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-white/[.04]"><p className="text-sm text-slate-500 dark:text-slate-400">{label}</p><p className="mt-2 text-2xl font-semibold tracking-tight">{value}</p>{hint && <p className="mt-1 text-xs text-slate-400">{hint}</p>}</article>; }
+export function PageTitle({ eyebrow, title, children }: { eyebrow: string; title: string; children?: ReactNode }) { return <div className="mb-7 flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-semibold uppercase tracking-[.2em] text-blue-600">{eyebrow}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">{title}</h1></div>{children}</div>; }
+export function LoadingSkeleton() { return <div className="h-32 animate-pulse rounded-2xl bg-slate-200 dark:bg-white/10" aria-label="Loading" />; }
+export function ErrorState({ onRetry }: { onRetry?: () => void }) { return <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">Unable to load platform data.{onRetry && <button onClick={onRetry} className="ml-3 font-semibold underline">Retry</button>}</div>; }
+export function EmptyState({ text }: { text: string }) { return <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm text-slate-500 dark:border-white/15">{text}</div>; }
+export function Section({ title, children }: { title: string; children: ReactNode }) { return <section className="mt-7"><h2 className="mb-3 text-lg font-semibold">{title}</h2>{children}</section>; }

@@ -15,7 +15,9 @@ from app.models import (
 )
 
 
-async def create_session(db: AsyncSession, user: User) -> tuple[Session, str]:
+async def create_session(
+    db: AsyncSession, user: User, *, session_kind: str = "user"
+) -> tuple[Session, str]:
     raw_token = generate_token()
     session = Session(
         id=uuid4(),
@@ -23,6 +25,7 @@ async def create_session(db: AsyncSession, user: User) -> tuple[Session, str]:
         token_hash=hash_token(raw_token),
         expires_at=session_expiration(),
         last_activity_at=utc_now(),
+        session_kind=session_kind,
     )
     db.add(session)
     await db.commit()
@@ -77,6 +80,10 @@ async def record_audit(
     action: str,
     entity_type: str,
     entity_id: UUID | None = None,
+    result: str = "success",
+    metadata: dict | None = None,
+    correlation_id: str | None = None,
+    network_metadata: dict | None = None,
 ) -> None:
     db.add(
         AuditLog(
@@ -84,6 +91,10 @@ async def record_audit(
             action=action,
             entity_type=entity_type,
             entity_id=entity_id,
+            result=result,
+            metadata_json=metadata or {},
+            correlation_id=correlation_id,
+            network_metadata=network_metadata or {},
         )
     )
     await db.commit()

@@ -1,4 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
+
+# ruff: noqa: E501
 from enum import StrEnum
 from uuid import UUID, uuid4
 
@@ -128,7 +130,10 @@ class User(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-    __table_args__ = (Index("ix_sessions_user_expires", "user_id", "expires_at"),)
+    __table_args__ = (
+        Index("ix_sessions_user_expires", "user_id", "expires_at"),
+        Index("ix_sessions_kind_activity", "session_kind", "last_activity_at"),
+    )
     id: Mapped[UUID] = uuid_column()
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
@@ -142,6 +147,8 @@ class Session(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     csrf_token_hash: Mapped[str | None] = mapped_column(String(128))
+    session_kind: Mapped[str] = mapped_column(String(20), nullable=False, default="user", server_default="user")
+    mfa_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     user: Mapped[User] = relationship(back_populates="sessions")
 
@@ -656,7 +663,10 @@ class AIModelSetting(Base):
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
-    __table_args__ = (Index("ix_audit_logs_user_created", "user_id", "created_at", "id"),)
+    __table_args__ = (
+        Index("ix_audit_logs_user_created", "user_id", "created_at", "id"),
+        Index("ix_audit_logs_action_created", "action", "created_at", "id"),
+    )
     id: Mapped[UUID] = uuid_column()
     user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -665,6 +675,9 @@ class AuditLog(Base):
     metadata_json: Mapped[dict] = mapped_column(
         "metadata", JSONB, nullable=False, default=dict, server_default="{}"
     )
+    result: Mapped[str] = mapped_column(String(20), nullable=False, default="success", server_default="success")
+    correlation_id: Mapped[str | None] = mapped_column(String(100))
+    network_metadata: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -698,3 +711,152 @@ class EmailVerificationToken(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class PlatformSetting(Base):
+    __tablename__ = "platform_settings"
+    __table_args__ = (Index("ix_platform_settings_updated", "updated_at"),)
+    id: Mapped[UUID] = uuid_column()
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    updated_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class PlatformModel(Base):
+    __tablename__ = "platform_models"
+    __table_args__ = (
+        CheckConstraint("length(trim(identifier)) > 0", name="ck_platform_models_identifier"),
+        CheckConstraint("max_output_tokens > 0 AND context_limit > 0", name="ck_platform_models_limits"),
+        Index("ix_platform_models_enabled_default", "enabled", "is_default"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    identifier: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    provider: Mapped[str] = mapped_column(String(40), nullable=False, default="openai", server_default="openai")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    capabilities: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    max_output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=1024, server_default="1024")
+    context_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=8000, server_default="8000")
+    last_availability_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class ModelPricingVersion(Base):
+    __tablename__ = "model_pricing_versions"
+    __table_args__ = (
+        UniqueConstraint("provider", "model_identifier", "effective_start", name="uq_model_pricing_effective_start"),
+        CheckConstraint("input_price_per_million >= 0 AND output_price_per_million >= 0 AND cached_input_price_per_million >= 0 AND embedding_price_per_million >= 0", name="ck_model_pricing_nonnegative"),
+        Index("ix_model_pricing_model_dates", "provider", "model_identifier", "effective_start", "effective_end"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    model_identifier: Mapped[str] = mapped_column(String(100), nullable=False)
+    effective_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    effective_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    currency: Mapped[str] = mapped_column(String(3), nullable=False, default="USD", server_default="USD")
+    input_price_per_million: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, default=0, server_default="0")
+    output_price_per_million: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, default=0, server_default="0")
+    cached_input_price_per_million: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, default=0, server_default="0")
+    embedding_price_per_million: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, default=0, server_default="0")
+    additional_billing: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    pricing_version: Mapped[str] = mapped_column(String(40), nullable=False, default="unpriced-v1", server_default="unpriced-v1")
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class QuotaPolicy(Base):
+    __tablename__ = "quota_policies"
+    __table_args__ = (
+        UniqueConstraint("scope", "scope_key", name="uq_quota_policies_scope"),
+        CheckConstraint("scope IN ('global','role')", name="ck_quota_policies_scope"),
+        CheckConstraint("requests_per_minute IS NULL OR requests_per_minute >= 0", name="ck_quota_rpm"),
+        CheckConstraint("daily_token_limit IS NULL OR daily_token_limit >= 0", name="ck_quota_daily_tokens"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    scope: Mapped[str] = mapped_column(String(20), nullable=False, default="global", server_default="global")
+    scope_key: Mapped[str] = mapped_column(String(50), nullable=False, default="default", server_default="default")
+    requests_per_minute: Mapped[int | None] = mapped_column(Integer)
+    requests_per_hour: Mapped[int | None] = mapped_column(Integer)
+    daily_token_limit: Mapped[int | None] = mapped_column(Integer)
+    monthly_token_limit: Mapped[int | None] = mapped_column(Integer)
+    daily_spend_limit: Mapped[float | None] = mapped_column(Numeric(18, 8))
+    concurrent_generation_limit: Mapped[int | None] = mapped_column(Integer)
+    document_count_limit: Mapped[int | None] = mapped_column(Integer)
+    storage_size_limit_bytes: Mapped[int | None] = mapped_column(Integer)
+    embedding_token_budget: Mapped[int | None] = mapped_column(Integer)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    updated_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class UserQuotaOverride(Base):
+    __tablename__ = "user_quota_overrides"
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    limits: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    updated_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class UsageAggregateDaily(Base):
+    __tablename__ = "usage_aggregates_daily"
+    __table_args__ = (
+        UniqueConstraint("usage_date", "user_id", "model", name="uq_usage_aggregate_daily"),
+        Index("ix_usage_aggregate_date", "usage_date"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    usage_date: Mapped[date] = mapped_column(nullable=False)
+    user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    completed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    cached_input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    embedding_tokens: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(18, 8))
+    rebuilt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SystemHealthSnapshot(Base):
+    __tablename__ = "system_health_snapshots"
+    __table_args__ = (Index("ix_health_snapshots_component_checked", "component", "checked_at"),)
+    id: Mapped[UUID] = uuid_column()
+    component: Mapped[str] = mapped_column(String(60), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    latency_ms: Mapped[int | None] = mapped_column(Integer)
+    detail_safe: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    checked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class AdminMFACredential(Base):
+    __tablename__ = "admin_mfa_credentials"
+    __table_args__ = (UniqueConstraint("user_id", name="uq_admin_mfa_user"),)
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    encrypted_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_counter: Mapped[int | None] = mapped_column(Integer)
+    failed_attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class AdminRecoveryCode(Base):
+    __tablename__ = "admin_recovery_codes"
+    __table_args__ = (Index("ix_admin_recovery_codes_credential", "mfa_credential_id", "used_at"),)
+    id: Mapped[UUID] = uuid_column()
+    mfa_credential_id: Mapped[UUID] = mapped_column(ForeignKey("admin_mfa_credentials.id", ondelete="CASCADE"), nullable=False)
+    code_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

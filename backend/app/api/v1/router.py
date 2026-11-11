@@ -85,6 +85,7 @@ from app.services.generation import (
     append_usage,
     create_generation,
     daily_token_count,
+    effective_quota_limits,
     finalize_message,
     get_owned_conversation,
     set_run_status,
@@ -663,12 +664,13 @@ async def get_usage(
     user: User = Depends(require_verified_user), db: AsyncSession = Depends(get_db)
 ) -> UsageRead:
     daily = await daily_token_count(db, user.id)
+    limits = await effective_quota_limits(db, user.id)
     return UsageRead(
         input_tokens=0,
         output_tokens=0,
         total_tokens=daily,
         daily_tokens=daily,
-        daily_budget=get_settings().ai_daily_token_budget,
+        daily_budget=limits["daily_token_limit"] or 0,
     )
 
 
@@ -854,14 +856,21 @@ async def _prepare_generation(
     regenerate: bool = False,
 ):
     ensure_trusted_origin(request)
-    enforce_rate_limit(
-        request,
-        "generate",
-        get_settings().ai_max_requests_per_minute,
-    )
+    limits = await effective_quota_limits(db, user.id)
+    request_limit = limits["requests_per_minute"]
+    if request_limit == 0:
+        raise HTTPException(
+            status_code=429,
+            detail={"code": "AI_QUOTA_EXCEEDED", "message": "Generation quota is disabled"},
+        )
+    if request_limit is not None:
+        enforce_rate_limit(request, "generate", request_limit)
     if await get_owned_conversation(db, user.id, conversation_id) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    if await daily_token_count(db, user.id) >= get_settings().ai_daily_token_budget:
+    daily_limit = limits["daily_token_limit"]
+    if daily_limit == 0 or (
+        daily_limit is not None and await daily_token_count(db, user.id) >= daily_limit
+    ):
         raise HTTPException(
             status_code=429,
             detail={"code": "AI_DAILY_QUOTA_EXCEEDED", "message": "Daily AI token budget reached"},
