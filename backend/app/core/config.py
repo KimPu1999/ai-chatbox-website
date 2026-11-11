@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     allowed_origins: list[str] = ["http://localhost:5173"]
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
+    ai_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
+    ai_max_output_tokens: int = Field(default=1024, gt=0, le=16_384)
+    ai_context_token_budget: int = Field(default=8_000, gt=256, le=128_000)
+    ai_max_requests_per_minute: int = Field(default=10, ge=1, le=100)
+    ai_max_concurrent_generations: int = Field(default=2, ge=1, le=20)
+    ai_daily_token_budget: int = Field(default=100_000, gt=0, le=10_000_000)
+    ai_pricing_version: str = "unpriced-v1"
+    ai_allowed_models: str = ""
+    redis_url: str | None = None
     log_level: str = "INFO"
     session_max_age_seconds: int = Field(default=28_800, gt=0)
     session_idle_timeout_seconds: int = Field(default=1_800, gt=0)
@@ -61,6 +70,13 @@ class Settings(BaseSettings):
         if self.password_min_length > self.password_max_length:
             raise ValueError("PASSWORD_MIN_LENGTH cannot exceed PASSWORD_MAX_LENGTH")
         return self
+
+    @property
+    def allowed_ai_models(self) -> tuple[str, ...]:
+        configured = tuple(
+            item.strip() for item in self.ai_allowed_models.split(",") if item.strip()
+        )
+        return configured or (self.openai_model,)
 
 
 @lru_cache

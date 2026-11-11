@@ -48,4 +48,6 @@ Authentication setup and security behavior are documented in [`docs/authenticati
 
 The Phase 4 workspace architecture, API contract, security boundary, and Phase 5 handoff are documented in [`docs/chat-workspace.md`](docs/chat-workspace.md).
 
+Phase 5 OpenAI Responses streaming, generation lifecycle, usage controls, and SSE protocol are documented in [`docs/ai-streaming.md`](docs/ai-streaming.md).
+
 The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 4 persists authenticated user messages but does not make AI provider calls or return fabricated assistant responses; streaming generation belongs to Phase 5.

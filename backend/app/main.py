@@ -11,6 +11,7 @@ from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db import dispose_engine
+from app.services.ai_provider import close_openai_client
 
 settings = get_settings()
 configure_logging(settings.log_level)
@@ -21,6 +22,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(_: FastAPI):
     logger.info("Starting %s in %s mode", settings.app_name, settings.environment)
     yield
+    await close_openai_client()
     await dispose_engine()
     logger.info("Stopping %s", settings.app_name)
 

@@ -52,6 +52,10 @@ class MessageRead(BaseModel):
     role: str
     content: str
     created_at: datetime
+    status: str = "completed"
+    generation_run_id: UUID | None = None
+    sequence: int = 0
+    version: int = 1
 
 
 class ModelOption(BaseModel):
@@ -59,6 +63,40 @@ class ModelOption(BaseModel):
     name: str
     description: str
     available: bool
+    context_window: int | None = None
+    max_output_tokens: int | None = None
+
+
+class GenerationCreate(BaseModel):
+    content: str | None = Field(default=None, min_length=1, max_length=32_000)
+    model: str | None = Field(default=None, min_length=1, max_length=100)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("content")
+    @classmethod
+    def content_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return value
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be blank")
+        return value
+
+
+class GenerationRead(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    model: str
+    status: str
+    message_id: UUID | None = None
+
+
+class UsageRead(BaseModel):
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+    daily_tokens: int
+    daily_budget: int
 
 
 class Pagination(BaseModel):

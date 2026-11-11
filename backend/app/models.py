@@ -10,6 +10,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -39,6 +40,22 @@ class AccountStatus(StrEnum):
     active = "active"
     suspended = "suspended"
     deleted = "deleted"
+
+
+class GenerationStatus(StrEnum):
+    queued = "queued"
+    streaming = "streaming"
+    completed = "completed"
+    cancelled = "cancelled"
+    failed = "failed"
+    incomplete = "incomplete"
+
+
+class MessageStatus(StrEnum):
+    completed = "completed"
+    streaming = "streaming"
+    failed = "failed"
+    superseded = "superseded"
 
 
 def uuid_column() -> Mapped[UUID]:
@@ -142,6 +159,47 @@ class Conversation(Base):
     )
 
 
+class GenerationRun(Base):
+    __tablename__ = "generation_runs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["conversation_id", "user_id"],
+            ["conversations.id", "conversations.user_id"],
+            ondelete="CASCADE",
+            name="fk_generation_runs_conversation_user",
+        ),
+        UniqueConstraint("id", "user_id", name="uq_generation_runs_id_user"),
+        UniqueConstraint("user_id", "idempotency_key", name="uq_generation_runs_user_idempotency"),
+        Index("ix_generation_runs_user_status", "user_id", "status", "created_at"),
+        Index("ix_generation_runs_conversation_created", "conversation_id", "created_at"),
+        CheckConstraint(
+            "status IN ('queued', 'streaming', 'completed', 'cancelled', 'failed', 'incomplete')",
+            name="ck_generation_runs_status",
+        ),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=GenerationStatus.queued, server_default="queued"
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_response_id: Mapped[str | None] = mapped_column(String(200))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user: Mapped[User] = relationship()
+    conversation: Mapped[Conversation] = relationship()
+    messages: Mapped[list["Message"]] = relationship(back_populates="generation_run")
+    usage: Mapped["AIUsage | None"] = relationship(back_populates="generation_run", uselist=False)
+
+
 class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
@@ -152,6 +210,12 @@ class Message(Base):
             name="fk_messages_conversation_user",
         ),
         UniqueConstraint("id", "user_id", name="uq_messages_id_user"),
+        ForeignKeyConstraint(
+            ["generation_run_id", "user_id"],
+            ["generation_runs.id", "generation_runs.user_id"],
+            ondelete="SET NULL",
+            name="fk_messages_generation_run_user",
+        ),
         Index("ix_messages_conversation_created", "conversation_id", "created_at", "id"),
         CheckConstraint("role IN ('user', 'assistant', 'system')", name="ck_messages_role"),
         CheckConstraint("length(content) > 0", name="ck_messages_content_not_empty"),
@@ -161,6 +225,13 @@ class Message(Base):
     user_id: Mapped[UUID] = mapped_column(nullable=False)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    generation_run_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=MessageStatus.completed, server_default="completed"
+    )
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     prompt_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -171,6 +242,7 @@ class Message(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+    generation_run: Mapped[GenerationRun | None] = relationship(back_populates="messages")
 
 
 class AIUsage(Base):
@@ -182,6 +254,13 @@ class AIUsage(Base):
             ondelete="CASCADE",
             name="fk_ai_usage_message_user",
         ),
+        ForeignKeyConstraint(
+            ["generation_run_id", "user_id"],
+            ["generation_runs.id", "generation_runs.user_id"],
+            ondelete="CASCADE",
+            name="fk_ai_usage_generation_run_user",
+        ),
+        UniqueConstraint("generation_run_id", name="uq_ai_usage_generation_run"),
         Index("ix_ai_usage_user_created", "user_id", "created_at", "id"),
         CheckConstraint("prompt_tokens >= 0", name="ck_ai_usage_prompt_tokens_nonnegative"),
         CheckConstraint("completion_tokens >= 0", name="ck_ai_usage_completion_tokens_nonnegative"),
@@ -191,6 +270,7 @@ class AIUsage(Base):
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
     message_id: Mapped[UUID | None] = mapped_column(nullable=True)
+    generation_run_id: Mapped[UUID | None] = mapped_column(nullable=True)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     prompt_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
@@ -198,10 +278,26 @@ class AIUsage(Base):
     completion_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
+    total_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    cached_input_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    reasoning_tokens: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    estimated_cost: Mapped[float | None] = mapped_column(Numeric(18, 8))
+    pricing_version: Mapped[str | None] = mapped_column(String(40))
+    usage_confirmed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    provider_response_id: Mapped[str | None] = mapped_column(String(200))
     latency_ms: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+    generation_run: Mapped[GenerationRun | None] = relationship(back_populates="usage")
 
 
 class Attachment(Base):
