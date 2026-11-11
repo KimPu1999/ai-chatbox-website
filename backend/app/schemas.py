@@ -30,6 +30,7 @@ class ConversationUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=200)
     is_pinned: bool | None = None
     archived: bool | None = None
+    folder_id: UUID | None = None
 
 
 class MessageCreate(BaseModel):
@@ -111,4 +112,126 @@ class ConversationRead(ConversationCreate):
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None
+    deleted_at: datetime | None = None
+    folder_id: UUID | None = None
+    pinned_at: datetime | None = None
+    last_message_at: datetime | None = None
     is_pinned: bool = False
+
+
+class ConversationPage(BaseModel):
+    items: list[ConversationRead]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+class FolderCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    sort_order: int = Field(default=0, ge=0, le=100_000)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, value: str) -> str:
+        value = " ".join(value.strip().split())
+        if not value:
+            raise ValueError("Folder name cannot be blank")
+        return value
+
+
+class FolderUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    sort_order: int | None = Field(default=None, ge=0, le=100_000)
+
+    @field_validator("name")
+    @classmethod
+    def update_name_not_blank(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.strip().split())
+        if not value:
+            raise ValueError("Folder name cannot be blank")
+        return value
+
+
+class FolderRead(FolderCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    user_id: UUID
+    normalized_name: str
+    created_at: datetime
+    updated_at: datetime
+
+
+class ConversationSearchResult(BaseModel):
+    conversation_id: UUID
+    message_id: UUID | None = None
+    title: str
+    snippet: str
+    role: str | None = None
+    created_at: datetime
+    rank: float = 0
+
+
+class ConversationSearchPage(BaseModel):
+    items: list[ConversationSearchResult]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+class BulkActionRequest(BaseModel):
+    conversation_ids: list[UUID] = Field(min_length=1, max_length=100)
+    action: str = Field(
+        pattern="^(archive|unarchive|pin|unpin|move_to_folder|soft_delete|restore)$"
+    )
+    folder_id: UUID | None = None
+
+    @field_validator("conversation_ids")
+    @classmethod
+    def unique_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(set(value)) != len(value):
+            raise ValueError("conversation_ids must be unique")
+        return value
+
+
+class BulkActionRead(BaseModel):
+    id: UUID
+    action: str
+    status: str
+    total_count: int
+    processed_count: int
+    error_summary: str | None = None
+
+
+class ShareCreate(BaseModel):
+    expires_in_days: int | None = Field(default=7, ge=1, le=365)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    message_ids: list[UUID] | None = Field(default=None, max_length=500)
+
+
+class ShareRead(BaseModel):
+    id: UUID
+    conversation_id: UUID
+    expires_at: datetime | None
+    revoked_at: datetime | None
+    created_at: datetime
+    last_accessed_at: datetime | None
+    password_protected: bool
+
+
+class ShareCreated(ShareRead):
+    public_token: str
+
+
+class SharedMessageRead(BaseModel):
+    id: UUID
+    role: str
+    content: str
+    created_at: datetime
+    version: int
+
+
+class SharedConversationRead(BaseModel):
+    schema_version: str
+    title: str
+    created_at: datetime
+    messages: list[SharedMessageRead]

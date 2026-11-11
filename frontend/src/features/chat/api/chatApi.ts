@@ -1,14 +1,25 @@
 import { api, loadCsrfToken } from '../../../api/client';
-import type { Conversation, ConversationUpdate, Message, ModelOption, StreamEventPayload } from '../types/chat.types';
+import type { Conversation, ConversationPage, ConversationUpdate, Folder, Message, ModelOption, SearchPage, Share, ShareCreated, StreamEventPayload } from '../types/chat.types';
 
-export async function listConversations(search = '') { return (await api.get<Conversation[]>('/conversations', { params: { limit: 100, search: search || undefined } })).data; }
+export async function listConversations(search = '', options?: { filter?: 'active' | 'archived' | 'deleted'; folderId?: string }) { return (await api.get<ConversationPage>('/conversations', { params: { limit: 100, search: search || undefined, include_archived: options?.filter === 'archived', include_deleted: options?.filter === 'deleted', folder_id: options?.folderId || undefined } })).data; }
 export async function createConversation(title = 'New conversation') { return (await api.post<Conversation>('/conversations', { title })).data; }
 export async function getConversation(id: string) { return (await api.get<Conversation>(`/conversations/${id}`)).data; }
 export async function updateConversation(id: string, update: ConversationUpdate) { return (await api.patch<Conversation>(`/conversations/${id}`, update)).data; }
 export async function deleteConversation(id: string) { await api.delete(`/conversations/${id}`); }
+export async function restoreConversation(id: string) { return (await api.post<Conversation>(`/conversations/${id}/restore`)).data; }
 export async function listMessages(id: string) { return (await api.get<Message[]>(`/conversations/${id}/messages`, { params: { limit: 100 } })).data; }
 export async function createMessage(id: string, content: string) { return (await api.post<Message>(`/conversations/${id}/messages`, { content })).data; }
 export async function listModels() { return (await api.get<ModelOption[]>('/models')).data; }
+export async function listFolders() { return (await api.get<Folder[]>('/folders')).data; }
+export async function createFolder(name: string) { return (await api.post<Folder>('/folders', { name })).data; }
+export async function updateFolder(id: string, patch: { name?: string; sort_order?: number }) { return (await api.patch<Folder>(`/folders/${id}`, patch)).data; }
+export async function deleteFolder(id: string) { await api.delete(`/folders/${id}`); }
+export async function searchConversations(query: string) { return (await api.get<SearchPage>('/conversations/search', { params: { q: query, limit: 50 } })).data; }
+export async function bulkConversations(payload: { conversation_ids: string[]; action: string; folder_id?: string }) { return (await api.post('/conversations/bulk', payload)).data; }
+export async function exportConversation(id: string, format: 'json' | 'markdown') { const response = await api.get(`/conversations/${id}/export`, { params: { format }, responseType: 'blob' }); return response.data as Blob; }
+export async function listShares(id: string) { return (await api.get<Share[]>(`/conversations/${id}/shares`)).data; }
+export async function createShare(id: string, payload: { expires_in_days?: number; password?: string; message_ids?: string[] }) { return (await api.post<ShareCreated>(`/conversations/${id}/shares`, payload)).data; }
+export async function revokeShare(id: string) { await api.delete(`/shares/${id}`); }
 
 type StreamHandlers = { onEvent: (event: string, payload: StreamEventPayload, id?: string) => void };
 

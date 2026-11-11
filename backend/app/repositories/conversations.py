@@ -4,7 +4,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Conversation, Message
+from app.models import Conversation, ConversationFolder, Message
 from app.schemas import ConversationCreate, ConversationUpdate, MessageCreate
 
 
@@ -65,8 +65,22 @@ async def update_for_user(
         conversation.title = payload.title.strip()
     if payload.is_pinned is not None:
         conversation.is_pinned = payload.is_pinned
+        conversation.pinned_at = datetime.now(timezone.utc) if payload.is_pinned else None
     if payload.archived is not None:
         conversation.archived_at = datetime.now(timezone.utc) if payload.archived else None
+    if "folder_id" in payload.model_fields_set:
+        if payload.folder_id is None:
+            conversation.folder_id = None
+        else:
+            folder = await db.scalar(
+                select(ConversationFolder).where(
+                    ConversationFolder.id == payload.folder_id,
+                    ConversationFolder.user_id == user_id,
+                )
+            )
+            if folder is None:
+                raise ValueError("FOLDER_NOT_FOUND")
+            conversation.folder_id = payload.folder_id
     await db.commit()
     await db.refresh(conversation)
     return conversation
@@ -115,6 +129,7 @@ async def create_user_message(
         content=payload.content.strip(),
     )
     db.add(message)
+    conversation.last_message_at = datetime.now(timezone.utc)
     await db.commit()
     await db.refresh(message)
     return message

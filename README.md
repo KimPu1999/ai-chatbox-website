@@ -1,6 +1,6 @@
 # PyChat AI
 
-Phase 1 establishes the production foundation for a modular AI chat application.
+PyChat AI is a modular AI chat application with secure sessions, persistent conversations, Responses API streaming, and advanced conversation management.
 
 ## Stack
 
@@ -46,8 +46,10 @@ The full table, relationship, ownership, constraint, and migration notes are in 
 
 Authentication setup and security behavior are documented in [`docs/authentication.md`](docs/authentication.md).
 
+Advanced conversation history, folders, search, exports, bulk actions, and read-only sharing are documented in [`docs/conversation-management.md`](docs/conversation-management.md). The database schema and migration procedure are documented in [`docs/database-schema.md`](docs/database-schema.md), with security boundaries in [`docs/security.md`](docs/security.md).
+
 The Phase 4 workspace architecture, API contract, security boundary, and Phase 5 handoff are documented in [`docs/chat-workspace.md`](docs/chat-workspace.md).
 
 Phase 5 OpenAI Responses streaming, generation lifecycle, usage controls, and SSE protocol are documented in [`docs/ai-streaming.md`](docs/ai-streaming.md).
 
-The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 4 persists authenticated user messages but does not make AI provider calls or return fabricated assistant responses; streaming generation belongs to Phase 5.
+The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 5 makes real provider calls only when `OPENAI_API_KEY` is configured. Phase 6 management APIs never broaden owner access and public share links expose immutable read-only snapshots only.

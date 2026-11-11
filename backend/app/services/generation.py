@@ -120,6 +120,7 @@ async def create_generation(
         )
         db.add(user_message)
         await db.flush()
+        conversation.last_message_at = utc_now()
     context = await build_context(db, user_id=user_id, conversation_id=conversation_id)
     run = GenerationRun(
         user_id=user_id,
@@ -141,13 +142,14 @@ async def create_generation(
         user_id=user_id,
         conversation_id=conversation_id,
         role="assistant",
-        content="",
+        content="…",
         generation_run_id=run.id,
         status="streaming",
         sequence=last_sequence + 1,
         version=1,
     )
     db.add(assistant)
+    conversation.last_message_at = utc_now()
     await db.commit()
     await db.refresh(run)
     await db.refresh(assistant)

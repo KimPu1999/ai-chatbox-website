@@ -5,6 +5,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    Computed,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -16,7 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -56,6 +57,13 @@ class MessageStatus(StrEnum):
     streaming = "streaming"
     failed = "failed"
     superseded = "superseded"
+
+
+class BulkJobStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
 
 
 def uuid_column() -> Mapped[UUID]:
@@ -106,6 +114,15 @@ class User(Base):
     model_settings: Mapped[list["AIModelSetting"]] = relationship(
         back_populates="user", cascade="all, delete-orphan"
     )
+    folders: Mapped[list["ConversationFolder"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+    shares: Mapped[list["ConversationShare"]] = relationship(
+        back_populates="owner", cascade="all, delete-orphan"
+    )
+    bulk_jobs: Mapped[list["ConversationBulkJob"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class Session(Base):
@@ -131,8 +148,15 @@ class Session(Base):
 class Conversation(Base):
     __tablename__ = "conversations"
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["folder_id", "user_id"],
+            ["conversation_folders.id", "conversation_folders.user_id"],
+            name="fk_conversations_folder_user",
+        ),
         UniqueConstraint("id", "user_id", name="uq_conversations_id_user"),
         Index("ix_conversations_user_updated", "user_id", "updated_at", "id"),
+        Index("ix_conversations_user_folder", "user_id", "folder_id", "updated_at", "id"),
+        Index("ix_conversations_user_pinned", "user_id", "pinned_at", "updated_at", "id"),
         CheckConstraint("length(trim(title)) > 0", name="ck_conversations_title_not_blank"),
     )
     id: Mapped[UUID] = uuid_column()
@@ -148,8 +172,14 @@ class Conversation(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
     )
+    folder_id: Mapped[UUID | None] = mapped_column(nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    search_vector: Mapped[object | None] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('simple', coalesce(title, ''))", persisted=True)
+    )
     is_pinned: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
@@ -157,6 +187,102 @@ class Conversation(Base):
     messages: Mapped[list["Message"]] = relationship(
         back_populates="conversation", cascade="all, delete-orphan"
     )
+    folder: Mapped["ConversationFolder | None"] = relationship(
+        back_populates="conversations", overlaps="conversations,user"
+    )
+
+
+class ConversationFolder(Base):
+    __tablename__ = "conversation_folders"
+    __table_args__ = (
+        UniqueConstraint("id", "user_id", name="uq_conversation_folders_id_user"),
+        UniqueConstraint("user_id", "normalized_name", name="uq_conversation_folders_user_name"),
+        Index("ix_conversation_folders_user_sort", "user_id", "sort_order", "created_at", "id"),
+        CheckConstraint("length(trim(name)) > 0", name="ck_conversation_folders_name_not_blank"),
+        CheckConstraint(
+            "length(normalized_name) > 0", name="ck_conversation_folders_normalized_name"
+        ),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    user: Mapped[User] = relationship(back_populates="folders")
+    conversations: Mapped[list[Conversation]] = relationship(
+        back_populates="folder", overlaps="conversations,user"
+    )
+
+
+class ConversationShare(Base):
+    __tablename__ = "conversation_shares"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["conversation_id", "owner_id"],
+            ["conversations.id", "conversations.user_id"],
+            ondelete="CASCADE",
+            name="fk_conversation_shares_conversation_owner",
+        ),
+        Index("ix_conversation_shares_owner_created", "owner_id", "created_at", "id"),
+        Index("ix_conversation_shares_expires_revoked", "expires_at", "revoked_at"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    owner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    conversation_id: Mapped[UUID] = mapped_column(nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    snapshot_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_accessed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    owner: Mapped[User] = relationship(back_populates="shares")
+    conversation: Mapped[Conversation] = relationship(overlaps="owner,shares")
+
+
+class ConversationBulkJob(Base):
+    __tablename__ = "conversation_bulk_jobs"
+    __table_args__ = (
+        Index("ix_conversation_bulk_jobs_user_status", "user_id", "status", "created_at"),
+        CheckConstraint(
+            "action IN ('archive','unarchive','pin','unpin','move_to_folder',"
+            "'soft_delete','restore')",
+            name="ck_conversation_bulk_jobs_action",
+        ),
+        CheckConstraint(
+            "status IN ('queued','running','completed','failed')",
+            name="ck_conversation_bulk_jobs_status",
+        ),
+        CheckConstraint("total_count >= 0 AND processed_count >= 0", name="ck_bulk_job_counts"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    action: Mapped[str] = mapped_column(String(30), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, default=BulkJobStatus.queued, server_default="queued"
+    )
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    processed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    error_summary: Mapped[str | None] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    user: Mapped[User] = relationship(back_populates="bulk_jobs")
 
 
 class GenerationRun(Base):
@@ -195,8 +321,10 @@ class GenerationRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     user: Mapped[User] = relationship()
-    conversation: Mapped[Conversation] = relationship()
-    messages: Mapped[list["Message"]] = relationship(back_populates="generation_run")
+    conversation: Mapped[Conversation] = relationship(overlaps="user")
+    messages: Mapped[list["Message"]] = relationship(
+        back_populates="generation_run", overlaps="conversation,messages"
+    )
     usage: Mapped["AIUsage | None"] = relationship(back_populates="generation_run", uselist=False)
 
 
@@ -232,6 +360,9 @@ class Message(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    search_vector: Mapped[object | None] = mapped_column(
+        TSVECTOR, Computed("to_tsvector('simple', coalesce(content, ''))", persisted=True)
+    )
     prompt_tokens: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )
@@ -241,8 +372,12 @@ class Message(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    conversation: Mapped[Conversation] = relationship(back_populates="messages")
-    generation_run: Mapped[GenerationRun | None] = relationship(back_populates="messages")
+    conversation: Mapped[Conversation] = relationship(
+        back_populates="messages", overlaps="messages"
+    )
+    generation_run: Mapped[GenerationRun | None] = relationship(
+        back_populates="messages", overlaps="conversation,messages"
+    )
 
 
 class AIUsage(Base):
