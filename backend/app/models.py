@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -360,6 +361,7 @@ class Message(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
     superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    citations: Mapped[list[dict] | None] = mapped_column(JSONB, nullable=True)
     search_vector: Mapped[object | None] = mapped_column(
         TSVECTOR, Computed("to_tsvector('simple', coalesce(content, ''))", persisted=True)
     )
@@ -456,6 +458,156 @@ class Attachment(Base):
     content_type: Mapped[str] = mapped_column(String(120), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
     byte_size: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DocumentStatus(StrEnum):
+    quarantined = "quarantined"
+    queued = "queued"
+    parsing = "parsing"
+    chunking = "chunking"
+    embedding = "embedding"
+    ready = "ready"
+    failed = "failed"
+    cancelled = "cancelled"
+    ocr_required = "ocr_required"
+    partially_extracted = "partially_extracted"
+
+
+class DocumentJobStatus(StrEnum):
+    queued = "queued"
+    running = "running"
+    completed = "completed"
+    failed = "failed"
+    cancelled = "cancelled"
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    __table_args__ = (
+        UniqueConstraint("id", "user_id", name="uq_documents_id_user"),
+        Index("ix_documents_user_created", "user_id", "created_at", "id"),
+        Index("ix_documents_user_status", "user_id", "status", "created_at"),
+        CheckConstraint("size_bytes >= 0", name="ck_documents_size_nonnegative"),
+        CheckConstraint(
+            "status IN ("
+            "'quarantined','queued','parsing','chunking','embedding','ready',"
+            "'failed','cancelled','ocr_required','partially_extracted')",
+            name="ck_documents_status",
+        ),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
+    storage_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
+    mime_type: Mapped[str] = mapped_column(String(120), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    sha256_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    page_count: Mapped[int | None] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, server_default="quarantined")
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class DocumentChunk(Base):
+    __tablename__ = "document_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "processing_version",
+            "chunk_index",
+            name="uq_document_chunks_version_index",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "user_id"],
+            ["documents.id", "documents.user_id"],
+            ondelete="CASCADE",
+            name="fk_document_chunks_document_user",
+        ),
+        Index("ix_document_chunks_user_document", "user_id", "document_id", "chunk_index"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    document_id: Mapped[UUID] = mapped_column(nullable=False)
+    user_id: Mapped[UUID] = mapped_column(nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    page_number: Mapped[int | None] = mapped_column(Integer)
+    source_locator: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    embedding_dimensions: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1536"
+    )
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(1536))
+    processing_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class DocumentProcessingJob(Base):
+    __tablename__ = "document_processing_jobs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["document_id", "user_id"],
+            ["documents.id", "documents.user_id"],
+            ondelete="CASCADE",
+            name="fk_document_jobs_document_user",
+        ),
+        Index("ix_document_jobs_user_status", "user_id", "status", "created_at"),
+        UniqueConstraint("document_id", "attempt_count", name="uq_document_jobs_attempt"),
+        CheckConstraint("progress >= 0 AND progress <= 100", name="ck_document_jobs_progress"),
+        CheckConstraint("attempt_count >= 0", name="ck_document_jobs_attempt_nonnegative"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    document_id: Mapped[UUID] = mapped_column(nullable=False)
+    user_id: Mapped[UUID] = mapped_column(nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="queued")
+    progress: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    embedding_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    embedding_cost_estimate: Mapped[float | None] = mapped_column(Numeric(18, 8))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class ConversationDocument(Base):
+    __tablename__ = "conversation_documents"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["conversation_id", "attached_by"],
+            ["conversations.id", "conversations.user_id"],
+            ondelete="CASCADE",
+            name="fk_conversation_documents_conversation_user",
+        ),
+        ForeignKeyConstraint(
+            ["document_id", "attached_by"],
+            ["documents.id", "documents.user_id"],
+            ondelete="CASCADE",
+            name="fk_conversation_documents_document_user",
+        ),
+        UniqueConstraint("conversation_id", "document_id", name="uq_conversation_documents"),
+        Index("ix_conversation_documents_user", "attached_by", "created_at"),
+    )
+    conversation_id: Mapped[UUID] = mapped_column(primary_key=True)
+    document_id: Mapped[UUID] = mapped_column(primary_key=True)
+    attached_by: Mapped[UUID] = mapped_column(nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

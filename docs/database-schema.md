@@ -1,6 +1,6 @@
 # PyChat AI database schema
 
-The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fields. Alembic revision `0006_conversation_management` adds folders, generated search vectors and GIN indexes, immutable share snapshots, bulk job records, pinned/last-message timestamps, and safe backfills without replacing earlier revision history.
+The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fields. Alembic revision `0008_documents_rag` adds the pgvector extension, private document metadata, versioned vector chunks, processing jobs, owner-bound conversation attachments and persisted message citations. Revision `0009_document_embedding_usage` adds per-processing-job embedding token accounting without replacing earlier revision history.
 
 ## Tables
 
@@ -21,6 +21,10 @@ The schema uses PostgreSQL UUID primary keys and timezone-aware `timestamptz` fi
 | `conversation_folders` | Per-user named folders and ordering | `user_id` → `users` |
 | `conversation_shares` | Immutable read-only share snapshots | Composite conversation/owner ownership |
 | `conversation_bulk_jobs` | Audited bounded bulk action progress | `user_id` → `users` |
+| `documents` | Private upload metadata, lifecycle and storage digest | `user_id` → `users` |
+| `document_chunks` | Normalized source chunks and VECTOR(1536) embeddings | Composite document/user ownership |
+| `document_processing_jobs` | Durable parse/chunk/embed progress and retries | Composite document/user ownership |
+| `conversation_documents` | Owner-bound document attachments | Composite conversation/document/user ownership |
 
 ## Ownership protection
 
@@ -38,8 +42,9 @@ Conversation ordering uses `pinned_at`, `last_message_at`, `updated_at`, and UUI
 
 ```bash
 alembic -c backend/alembic.ini upgrade head
-alembic -c backend/alembic.ini upgrade head
 TEST_DATABASE_URL='postgresql+asyncpg://<isolated-db-url>' pytest -q backend/tests
 ```
 
 The integration test fixture creates and drops schema objects in the database named by `TEST_DATABASE_URL`. It intentionally skips when that variable is absent or is not a PostgreSQL async URL. Use a disposable database owned by the test runner; never use a shared or production database.
+
+Revision `0008_documents_rag` requires a PostgreSQL role permitted to run `CREATE EXTENSION vector`. The migration creates the HNSW cosine index after the vector column. If the extension package is available but not installed by the server, install it at the PostgreSQL service level before running the migration.

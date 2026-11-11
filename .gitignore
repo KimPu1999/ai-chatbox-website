@@ -13,3 +13,5 @@ frontend/dist/
 .DS_Store
 *.log
 backend/.local_verification_link.txt
+storage/private/
+backend/storage/private/

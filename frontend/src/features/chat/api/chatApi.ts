@@ -30,7 +30,7 @@ export function parseSseBlock(block: string): { event: string; id?: string; payl
   return { event, id, payload: JSON.parse(data.join('\n')) as StreamEventPayload };
 }
 
-export async function streamGeneration(conversationId: string, body: { content?: string; model?: string; idempotency_key: string }, handlers: StreamHandlers, signal: AbortSignal, regenerate = false) {
+export async function streamGeneration(conversationId: string, body: { content?: string; model?: string; idempotency_key: string; document_ids?: string[] }, handlers: StreamHandlers, signal: AbortSignal, regenerate = false) {
   const csrf = await loadCsrfToken();
   const response = await fetch(`/api/v1/conversations/${conversationId}/${regenerate ? 'regenerate' : 'generate'}`, { method: 'POST', credentials: 'include', signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
   if (!response.ok) { const data = await response.json().catch(() => null); const detail = data?.detail; throw new Error(typeof detail === 'string' ? detail : detail?.message || 'Generation request failed'); }

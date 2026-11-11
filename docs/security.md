@@ -9,3 +9,5 @@ Share tokens use at least 256 bits of randomness and only their SHA-256 digests 
 Search and exports are owner-scoped. Exports omit system instructions, failed assistant output, attachments, provider IDs, session values, API keys, and internal errors. Markdown and shared viewer content use the existing safe renderer without raw HTML execution.
 
 The local rate limiter is process-local. Configure shared Redis coordination before running multiple API workers. PostgreSQL remains the source of truth for ownership, soft deletion, share revocation, and generation state.
+
+Document uploads are private, owner-scoped and stored outside the webroot with random keys. The service rejects unsupported extensions, unsafe signatures, oversized input, encrypted PDFs and parser-limit violations; it never executes macros or serves uploaded files as active content. Extracted document content is untrusted prompt evidence. Current deployments do not include a malware scanner or OCR provider, so those states are explicit and production deployment must add isolated scanning/parser workers before accepting untrusted high-risk files at scale.

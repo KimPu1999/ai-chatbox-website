@@ -5,6 +5,7 @@ import { ForgotPasswordPage, LoginPage, RegisterPage, ResetPasswordPage, VerifyE
 import { AccountSecurityPage, AdminUsersPage } from './auth/secure-pages';
 import { ChatPage } from './features/chat/pages/ChatPage';
 import { SharedConversationViewer } from './features/chat/components/SharedConversationViewer';
+import { DocumentLibraryPage, DocumentViewerPage } from './features/documents/components';
 
 export default function App() {
   return <BrowserRouter><AuthProvider><Routes>
@@ -18,6 +19,8 @@ export default function App() {
       <Route path="/" element={<Navigate to="/chat" replace />} />
       <Route path="/chat" element={<ChatPage />} />
       <Route path="/chat/:conversationId" element={<ChatPage />} />
+      <Route path="/documents" element={<DocumentLibraryPage />} />
+      <Route path="/documents/:documentId" element={<DocumentViewerPage />} />
       <Route path="/account/security" element={<AccountSecurityPage />} />
       <Route element={<AdminRoute />}><Route path="/admin/users" element={<AdminUsersPage />} /></Route>
     </Route>

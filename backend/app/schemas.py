@@ -57,6 +57,7 @@ class MessageRead(BaseModel):
     generation_run_id: UUID | None = None
     sequence: int = 0
     version: int = 1
+    citations: list[dict] | None = None
 
 
 class ModelOption(BaseModel):
@@ -72,6 +73,7 @@ class GenerationCreate(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=32_000)
     model: str | None = Field(default=None, min_length=1, max_length=100)
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=128)
+    document_ids: list[UUID] = Field(default_factory=list, max_length=20)
 
     @field_validator("content")
     @classmethod
@@ -235,3 +237,67 @@ class SharedConversationRead(BaseModel):
     title: str
     created_at: datetime
     messages: list[SharedMessageRead]
+
+
+class DocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    original_filename: str
+    mime_type: str
+    size_bytes: int
+    page_count: int | None = None
+    status: str
+    error_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    deleted_at: datetime | None = None
+
+
+class DocumentPage(BaseModel):
+    items: list[DocumentRead]
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+class DocumentStatusRead(BaseModel):
+    document_id: UUID
+    status: str
+    progress: int
+    error_code: str | None = None
+    attempt_count: int = 0
+
+
+class DocumentPreviewChunk(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: UUID
+    chunk_index: int
+    content: str
+    page_number: int | None = None
+    source_locator: dict
+
+
+class DocumentPreviewRead(BaseModel):
+    document: DocumentRead
+    chunks: list[DocumentPreviewChunk]
+
+
+class ConversationDocumentRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    conversation_id: UUID
+    document_id: UUID
+    created_at: datetime
+
+
+class DocumentUpdate(BaseModel):
+    original_filename: str | None = Field(default=None, min_length=1, max_length=255)
+
+
+class DocumentAttachRequest(BaseModel):
+    document_ids: list[UUID] = Field(min_length=1, max_length=20)
+
+    @field_validator("document_ids")
+    @classmethod
+    def unique_document_ids(cls, value: list[UUID]) -> list[UUID]:
+        if len(value) != len(set(value)):
+            raise ValueError("document_ids must be unique")
+        return value

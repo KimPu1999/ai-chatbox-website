@@ -42,6 +42,23 @@ class Settings(BaseSettings):
     auth_rate_limit_per_minute: int = Field(default=10, ge=1, le=100)
     password_breach_check_enabled: bool = False
     password_breach_api_url: str = "https://api.pwnedpasswords.com/range"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimensions: int = Field(default=1536, gt=0, le=8192)
+    document_max_upload_mb: int = Field(default=20, gt=0, le=200)
+    document_max_pages: int = Field(default=200, gt=0, le=10_000)
+    document_chunk_tokens: int = Field(default=500, gt=50, le=4_000)
+    document_chunk_overlap: int = Field(default=75, ge=0, le=1_000)
+    document_retrieval_top_k: int = Field(default=5, ge=1, le=50)
+    document_storage_backend: str = "local"
+    document_storage_path: str = "./storage/private"
+    document_max_files_per_user: int = Field(default=100, gt=0, le=10_000)
+    document_max_storage_mb_per_user: int = Field(default=500, gt=0, le=100_000)
+    document_processing_timeout_seconds: int = Field(default=120, gt=0, le=3_600)
+    document_max_csv_rows: int = Field(default=100_000, gt=0, le=1_000_000)
+    document_max_csv_columns: int = Field(default=100, gt=0, le=1_000)
+    document_max_extracted_characters: int = Field(default=5_000_000, gt=0, le=50_000_000)
+    document_processing_enabled: bool = True
+    document_malware_scan_required: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -69,6 +86,16 @@ class Settings(BaseSettings):
     def validate_password_bounds(self) -> "Settings":
         if self.password_min_length > self.password_max_length:
             raise ValueError("PASSWORD_MIN_LENGTH cannot exceed PASSWORD_MAX_LENGTH")
+        return self
+
+    @model_validator(mode="after")
+    def validate_document_chunking(self) -> "Settings":
+        if self.document_chunk_overlap >= self.document_chunk_tokens:
+            raise ValueError("DOCUMENT_CHUNK_OVERLAP must be less than DOCUMENT_CHUNK_TOKENS")
+        if self.embedding_dimensions != 1536:
+            raise ValueError(
+                "EMBEDDING_DIMENSIONS must remain 1536 until a re-embedding migration is applied"
+            )
         return self
 
     @property

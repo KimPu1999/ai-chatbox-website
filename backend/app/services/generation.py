@@ -210,10 +210,18 @@ async def append_usage(
     await db.commit()
 
 
-async def finalize_message(db: AsyncSession, message_id: UUID, content: str, status: str) -> None:
+async def finalize_message(
+    db: AsyncSession,
+    message_id: UUID,
+    content: str,
+    status: str,
+    citations: list[dict] | None = None,
+) -> None:
     message = await db.get(Message, message_id)
     if message is None:
         return
     message.content = content
     message.status = status
+    if citations is not None:
+        message.citations = citations
     await db.commit()
