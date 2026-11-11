@@ -18,7 +18,15 @@ class EmailService:
     async def _send(self, recipient: str, subject: str, body: str) -> None:
         settings = get_settings()
         if settings.email_provider == "local" and not settings.smtp_host:
-            logger.info("Email delivery is configured for local development")
+            if settings.environment.lower() != "development":
+                logger.warning("Local email delivery is disabled outside development")
+                return
+            logger.info(
+                "LOCAL DEVELOPMENT EMAIL recipient=%s subject=%s body=%s",
+                recipient,
+                subject,
+                body,
+            )
             return
         if not settings.smtp_host or not settings.smtp_from_email:
             logger.warning("Email delivery is not configured; message not sent")
