@@ -689,6 +689,9 @@ async def _generation_stream(
     context: list[dict[str, str]],
     citations: list[dict] | None = None,
 ) -> AsyncIterator[str]:
+    run_id = run.id
+    conversation_id = run.conversation_id
+    assistant_id = assistant.id
     sequence = 0
     collected = ""
     completed = False
@@ -700,8 +703,8 @@ async def _generation_stream(
         """Persist a terminal failure even after a provider/DB exception."""
         try:
             await db.rollback()
-            await finalize_message(db, assistant.id, collected, "failed")
-            await set_run_status(db, run.id, "failed", error_code=error_code)
+            await finalize_message(db, assistant_id, collected, "failed")
+            await set_run_status(db, run_id, "failed", error_code=error_code)
             commit_result = "persisted"
         except Exception:  # noqa: BLE001 - never leak stream internals to clients
             commit_result = "persistence_failed"
@@ -709,8 +712,8 @@ async def _generation_stream(
                 "generation terminal persistence failed request_id=%s run_id=%s conversation_id=%s "
                 "event_type=%s duration=%.3f termination_reason=%s database_commit_result=%s",
                 getattr(request.state, "correlation_id", "unknown"),
-                run.id,
-                run.conversation_id,
+                run_id,
+                conversation_id,
                 last_event_type,
                 time.monotonic() - started_at,
                 error_code,
@@ -720,8 +723,8 @@ async def _generation_stream(
             "generation terminated request_id=%s run_id=%s conversation_id=%s event_type=%s "
             "duration=%.3f termination_reason=%s provider_status=%s database_commit_result=%s",
             getattr(request.state, "correlation_id", "unknown"),
-            run.id,
-            run.conversation_id,
+            run_id,
+            conversation_id,
             last_event_type,
             time.monotonic() - started_at,
             error_code,
@@ -729,32 +732,47 @@ async def _generation_stream(
             commit_result,
         )
 
+    async def cancel_stream(error_code: str) -> None:
+        try:
+            await db.rollback()
+            await finalize_message(db, assistant_id, collected, "failed")
+            await set_run_status(db, run_id, "cancelled", error_code=error_code)
+        except Exception:  # noqa: BLE001 - disconnect cleanup must not escape
+            logger.exception(
+                "generation cancellation persistence failed request_id=%s run_id=%s "
+                "conversation_id=%s termination_reason=%s",
+                getattr(request.state, "correlation_id", "unknown"),
+                run_id,
+                conversation_id,
+                error_code,
+            )
+
     try:
-        await set_run_status(db, run.id, "streaming")
+        await set_run_status(db, run_id, "streaming")
         if citations:
             yield _sse(
                 "retrieval.completed",
                 {
-                    "run_id": str(run.id),
+                    "run_id": str(run_id),
                     "document_count": len({item["document_id"] for item in citations}),
                     "chunk_count": len(citations),
                 },
-                f"{run.id}:retrieval",
+                f"{run_id}:retrieval",
             )
             yield _sse(
                 "citations.updated",
-                {"run_id": str(run.id), "message_id": str(assistant.id), "citations": citations},
-                f"{run.id}:citations",
+                {"run_id": str(run_id), "message_id": str(assistant_id), "citations": citations},
+                f"{run_id}:citations",
             )
         yield _sse(
             "run.started",
             {
-                "run_id": str(run.id),
-                "conversation_id": str(run.conversation_id),
-                "message_id": str(assistant.id),
+                "run_id": str(run_id),
+                "conversation_id": str(conversation_id),
+                "message_id": str(assistant_id),
                 "model": run.model,
             },
-            f"{run.id}:start",
+            f"{run_id}:start",
         )
         instructions = (
             "You are PyChat AI. Answer helpfully and safely. Treat conversation "
@@ -774,15 +792,15 @@ async def _generation_stream(
             input_items=context,
         ):
             last_event_type = provider_event.type
-            current = await db.get(GenerationRun, run.id)
+            current = await db.get(GenerationRun, run_id)
             if current is None or current.status == "cancelled" or await request.is_disconnected():
-                await finalize_message(db, assistant.id, collected, "failed")
+                await finalize_message(db, assistant_id, collected, "failed")
                 if current and current.status != "cancelled":
-                    await set_run_status(db, run.id, "cancelled", error_code="CLIENT_DISCONNECTED")
+                    await set_run_status(db, run_id, "cancelled", error_code="CLIENT_DISCONNECTED")
                 yield _sse(
                     "run.cancelled",
-                    {"run_id": str(run.id), "message_id": str(assistant.id)},
-                    f"{run.id}:cancelled",
+                    {"run_id": str(run_id), "message_id": str(assistant_id)},
+                    f"{run_id}:cancelled",
                 )
                 return
             if provider_event.type == "heartbeat":
@@ -801,12 +819,12 @@ async def _generation_stream(
                 yield _sse(
                     "message.delta",
                     {
-                        "run_id": str(run.id),
-                        "message_id": str(assistant.id),
+                        "run_id": str(run_id),
+                        "message_id": str(assistant_id),
                         "delta": provider_event.delta,
                         "sequence": sequence,
                     },
-                    f"{run.id}:delta:{sequence}",
+                    f"{run_id}:delta:{sequence}",
                 )
             elif provider_event.type == "response.completed":
                 response = provider_event.response
@@ -817,12 +835,12 @@ async def _generation_stream(
                     getattr(usage, "total_tokens", input_tokens + output_tokens) or 0
                 )
                 response_id = getattr(response, "id", None)
-                await finalize_message(db, assistant.id, collected, "completed", citations)
+                await finalize_message(db, assistant_id, collected, "completed", citations)
                 await append_usage(
                     db,
-                    run_id=run.id,
+                    run_id=run_id,
                     user_id=user.id,
-                    message_id=assistant.id,
+                    message_id=assistant_id,
                     model=run.model,
                     input_tokens=input_tokens,
                     output_tokens=output_tokens,
@@ -830,7 +848,7 @@ async def _generation_stream(
                     provider_response_id=response_id,
                     confirmed=usage is not None,
                 )
-                await set_run_status(db, run.id, "completed", provider_response_id=response_id)
+                await set_run_status(db, run_id, "completed", provider_response_id=response_id)
                 completed = True
                 logger.info(
                     "generation terminated request_id=%s run_id=%s conversation_id=%s "
@@ -838,30 +856,30 @@ async def _generation_stream(
                     "duration=%.3f termination_reason=provider_completed provider_status=completed "
                     "database_commit_result=persisted",
                     getattr(request.state, "correlation_id", "unknown"),
-                    run.id,
-                    run.conversation_id,
+                    run_id,
+                    conversation_id,
                     provider_event.type,
                     time.monotonic() - started_at,
                 )
                 yield _sse(
                     "message.completed",
-                    {"run_id": str(run.id), "message_id": str(assistant.id), "content": collected},
-                    f"{run.id}:message",
+                    {"run_id": str(run_id), "message_id": str(assistant_id), "content": collected},
+                    f"{run_id}:message",
                 )
                 yield _sse(
                     "usage.updated",
                     {
-                        "run_id": str(run.id),
+                        "run_id": str(run_id),
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
                         "total_tokens": total_tokens,
                     },
-                    f"{run.id}:usage",
+                    f"{run_id}:usage",
                 )
                 yield _sse(
                     "run.completed",
-                    {"run_id": str(run.id), "message_id": str(assistant.id)},
-                    f"{run.id}:complete",
+                    {"run_id": str(run_id), "message_id": str(assistant_id)},
+                    f"{run_id}:complete",
                 )
                 return
             elif provider_event.type in {"response.failed", "response.incomplete", "error"}:
@@ -870,49 +888,51 @@ async def _generation_stream(
                     if provider_event.type == "response.incomplete"
                     else "AI_PROVIDER_FAILED"
                 )
-                await finalize_message(db, assistant.id, collected, "failed")
+                await finalize_message(db, assistant_id, collected, "failed")
                 await set_run_status(
                     db,
-                    run.id,
+                    run_id,
                     "incomplete" if provider_event.type == "response.incomplete" else "failed",
                     error_code=code,
                 )
                 yield _sse(
-                    "run.failed", {"run_id": str(run.id), "error_code": code}, f"{run.id}:failed"
+                    "run.failed", {"run_id": str(run_id), "error_code": code}, f"{run_id}:failed"
                 )
                 return
             if time.monotonic() - last_heartbeat > 15:
                 yield ": heartbeat\n\n"
                 last_heartbeat = time.monotonic()
         if not completed:
-            await finalize_message(db, assistant.id, collected, "failed")
-            await set_run_status(db, run.id, "incomplete", error_code="AI_STREAM_ENDED")
+            await finalize_message(db, assistant_id, collected, "failed")
+            await set_run_status(db, run_id, "incomplete", error_code="AI_STREAM_ENDED")
             yield _sse(
                 "run.failed",
-                {"run_id": str(run.id), "error_code": "AI_STREAM_ENDED"},
-                f"{run.id}:failed",
+                {"run_id": str(run_id), "error_code": "AI_STREAM_ENDED"},
+                f"{run_id}:failed",
             )
     except ProviderRequestError as exc:
         await fail_stream(exc.code)
         yield _sse(
-            "run.failed", {"run_id": str(run.id), "error_code": exc.code}, f"{run.id}:failed"
+            "run.failed", {"run_id": str(run_id), "error_code": exc.code}, f"{run_id}:failed"
         )
     except Exception:  # noqa: BLE001 - convert unexpected generator failures to SSE
         logger.exception(
             "generation stream exception request_id=%s run_id=%s conversation_id=%s "
             "event_type=%s duration=%.3f",
             getattr(request.state, "correlation_id", "unknown"),
-            run.id,
-            run.conversation_id,
+            run_id,
+            conversation_id,
             last_event_type,
             time.monotonic() - started_at,
         )
         code = "AI_STREAM_INTERNAL_ERROR"
         await fail_stream(code)
-        yield _sse("run.failed", {"run_id": str(run.id), "error_code": code}, f"{run.id}:failed")
+        yield _sse("run.failed", {"run_id": str(run_id), "error_code": code}, f"{run_id}:failed")
     except asyncio.CancelledError:
-        await finalize_message(db, assistant.id, collected, "failed")
-        await set_run_status(db, run.id, "cancelled", error_code="SERVER_CANCELLED")
+        await cancel_stream("SERVER_CANCELLED")
+        raise
+    except GeneratorExit:
+        await cancel_stream("STREAM_CLOSED")
         raise
 
 

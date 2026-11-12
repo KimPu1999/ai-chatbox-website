@@ -280,6 +280,8 @@ async def finalize_message(
     message = await db.get(Message, message_id)
     if message is None:
         return
+    if not content.strip() and status != "completed":
+        content = message.content or "Generation failed."
     message.content = content
     message.status = status
     if citations is not None:

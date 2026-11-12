@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
 
-from openai import APIConnectionError, APIStatusError, APITimeoutError, AsyncOpenAI
+from openai import APIConnectionError, APIError, APIStatusError, APITimeoutError, AsyncOpenAI
 
 from app.core.config import get_settings
 
@@ -122,6 +122,11 @@ async def stream_response(
             raise ProviderRequestError("AI_PROVIDER_RATE_LIMITED") from exc
         if exc.status_code >= 500:
             raise ProviderRequestError("AI_PROVIDER_UNAVAILABLE") from exc
+        raise ProviderRequestError("AI_PROVIDER_REQUEST_FAILED") from exc
+    except APIError as exc:
+        message = str(exc).lower()
+        if "credit" in message or "quota" in message or "insufficient_quota" in message:
+            raise ProviderRequestError("AI_PROVIDER_QUOTA_EXCEEDED") from exc
         raise ProviderRequestError("AI_PROVIDER_REQUEST_FAILED") from exc
     finally:
         if pending_event is not None:
