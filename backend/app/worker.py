@@ -8,6 +8,7 @@ from arq.connections import RedisSettings
 
 from app.core.config import get_settings
 from app.services.documents import process_document_by_id
+from app.services.privacy import process_privacy_request
 
 
 async def process_document(_ctx: dict, document_id: str) -> None:
@@ -16,8 +17,14 @@ async def process_document(_ctx: dict, document_id: str) -> None:
     await process_document_by_id(UUID(document_id))
 
 
+async def process_privacy(_ctx: dict, request_id: str) -> None:
+    from uuid import UUID
+
+    await process_privacy_request(UUID(request_id))
+
+
 class WorkerSettings:
-    functions = [process_document]
+    functions = [process_document, process_privacy]
     max_jobs = 2
     job_timeout = get_settings().document_processing_timeout_seconds
 

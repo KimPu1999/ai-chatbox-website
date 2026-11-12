@@ -13,11 +13,13 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.phase11 import router as phase11_router
 from app.api.v1.platform import router as platform_router
 from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
 from app.db import check_database_connection, dispose_engine
+from app.observability import instrument_app
 from app.services.ai_provider import close_openai_client
 
 settings = get_settings()
@@ -35,6 +37,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
+instrument_app(app)
 app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
 app.add_middleware(
     CORSMiddleware,
@@ -148,3 +151,4 @@ app.include_router(v1_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(platform_router, prefix="/api/v1")
+app.include_router(phase11_router, prefix="/api/v1")

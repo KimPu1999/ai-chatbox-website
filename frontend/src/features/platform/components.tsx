@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { platformLogout } from './api';
 
 const links = [
-  ['/platform/overview', 'Overview', Gauge], ['/platform/users', 'Users', Users], ['/platform/usage', 'Usage', BarChart3], ['/platform/costs', 'Costs', Wallet], ['/platform/models', 'Models', Boxes], ['/platform/quotas', 'Quotas', Shield], ['/platform/storage', 'Storage', FileClock], ['/platform/audit-logs', 'Audit logs', Activity], ['/platform/health', 'Health', Activity], ['/platform/settings', 'Settings', Settings],
+  ['/platform/overview', 'Overview', Gauge], ['/platform/operations', 'Operations', Activity], ['/platform/users', 'Users', Users], ['/platform/usage', 'Usage', BarChart3], ['/platform/costs', 'Costs', Wallet], ['/platform/models', 'Models', Boxes], ['/platform/quotas', 'Quotas', Shield], ['/platform/storage', 'Storage', FileClock], ['/platform/audit-logs', 'Audit logs', Activity], ['/platform/health', 'Health', Activity], ['/platform/settings', 'Settings', Settings],
 ] as const;
 
 export function PlatformSidebar({ onClose }: { onClose?: () => void }) {

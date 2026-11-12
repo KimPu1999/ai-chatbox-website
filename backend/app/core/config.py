@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     platform_bootstrap_enabled: bool = False
     platform_bootstrap_environment: str = "local"
     quota_reset_timezone: str = "UTC"
+    billing_enabled: bool = False
+    billing_provider: str = "disabled"
+    otel_enabled: bool = False
+    otel_exporter_endpoint: str | None = None
+    otel_service_name: str = "pychat-api"
+    otel_sample_ratio: float = Field(default=0.1, ge=0, le=1)
+    privacy_export_retention_days: int = Field(default=7, gt=0, le=365)
+    account_deletion_grace_days: int = Field(default=30, ge=0, le=365)
+    sso_feature_enabled: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -174,6 +183,8 @@ class Settings(BaseSettings):
             missing_r2 = [name for name, value in r2_required.items() if not value.strip()]
             if missing_r2:
                 raise ValueError(f"Missing required R2 settings: {', '.join(missing_r2)}")
+            if self.billing_enabled and self.billing_provider == "disabled":
+                raise ValueError("BILLING_PROVIDER must be configured when BILLING_ENABLED is true")
         return self
 
     @property

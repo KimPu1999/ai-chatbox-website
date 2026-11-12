@@ -17,6 +17,7 @@ from app.models import (
     UserQuotaOverride,
 )
 from app.services.context import build_context
+from app.services.entitlements import get_entitlement_context, platform_safety_caps
 
 
 async def get_owned_conversation(
@@ -43,12 +44,12 @@ async def active_run_count(db: AsyncSession, user_id: UUID) -> int:
 
 
 async def effective_quota_limits(db: AsyncSession, user_id: UUID) -> dict[str, int | None]:
-    settings = get_settings()
-    limits: dict[str, int | None] = {
-        "requests_per_minute": settings.ai_max_requests_per_minute,
-        "daily_token_limit": settings.ai_daily_token_budget,
-        "concurrent_generation_limit": settings.ai_max_concurrent_generations,
-    }
+    limits: dict[str, int | None] = platform_safety_caps()
+    context = await get_entitlement_context(db, user_id)
+    for key in limits:
+        value = context["limits"].get(key)
+        if value is not None:
+            limits[key] = min(int(value), limits[key]) if limits[key] is not None else int(value)
     policy = await db.scalar(
         select(QuotaPolicy).where(
             QuotaPolicy.scope == "global",

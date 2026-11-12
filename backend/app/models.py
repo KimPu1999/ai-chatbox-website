@@ -859,3 +859,141 @@ class AdminRecoveryCode(Base):
     code_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class Plan(Base):
+    __tablename__ = "plans"
+    __table_args__ = (
+        CheckConstraint("code IN ('free', 'pro', 'business') OR length(trim(code)) > 0", name="ck_plans_code"),
+        Index("ix_plans_enabled_order", "enabled", "sort_order"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    code: Mapped[str] = mapped_column(String(40), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="", server_default="")
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="true")
+    sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class PlanEntitlement(Base):
+    __tablename__ = "plan_entitlements"
+    __table_args__ = (UniqueConstraint("plan_id", "feature", name="uq_plan_entitlements_feature"),)
+    id: Mapped[UUID] = uuid_column()
+    plan_id: Mapped[UUID] = mapped_column(ForeignKey("plans.id", ondelete="CASCADE"), nullable=False)
+    feature: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class Subscription(Base):
+    __tablename__ = "subscriptions"
+    __table_args__ = (
+        Index("ix_subscriptions_user_status", "user_id", "status"),
+        CheckConstraint("status IN ('active', 'trialing', 'past_due', 'canceled', 'incomplete')", name="ck_subscriptions_status"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    plan_id: Mapped[UUID] = mapped_column(ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    provider: Mapped[str | None] = mapped_column(String(40))
+    provider_customer_ref: Mapped[str | None] = mapped_column(String(200))
+    provider_subscription_ref: Mapped[str | None] = mapped_column(String(200), unique=True)
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class FeatureFlag(Base):
+    __tablename__ = "feature_flags"
+    __table_args__ = (
+        CheckConstraint("rollout_percent >= 0 AND rollout_percent <= 100", name="ck_feature_flags_rollout"),
+        Index("ix_feature_flags_enabled", "enabled"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    key: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    admin_only: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    rollout_percent: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    plan_codes: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    user_allowlist: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default="[]")
+    updated_by: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class UserFeedback(Base):
+    __tablename__ = "user_feedback"
+    __table_args__ = (Index("ix_user_feedback_user_created", "user_id", "created_at"),)
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    rating: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+    __table_args__ = (
+        Index("ix_support_tickets_user_status", "user_id", "status", "updated_at"),
+        CheckConstraint("status IN ('open', 'pending', 'resolved', 'closed')", name="ck_support_tickets_status"),
+        CheckConstraint("priority IN ('low', 'normal', 'high', 'urgent')", name="ck_support_tickets_priority"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    ticket_number: Mapped[str] = mapped_column(String(24), unique=True, nullable=False)
+    subject: Mapped[str] = mapped_column(String(200), nullable=False)
+    priority: Mapped[str] = mapped_column(String(20), nullable=False, default="normal", server_default="normal")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open", server_default="open")
+    assigned_to: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class SupportTicketMessage(Base):
+    __tablename__ = "support_ticket_messages"
+    __table_args__ = (Index("ix_support_ticket_messages_ticket_created", "ticket_id", "created_at"),)
+    id: Mapped[UUID] = uuid_column()
+    ticket_id: Mapped[UUID] = mapped_column(ForeignKey("support_tickets.id", ondelete="CASCADE"), nullable=False)
+    author_user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    is_internal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class IncidentRecord(Base):
+    __tablename__ = "incident_records"
+    __table_args__ = (Index("ix_incident_records_status_created", "status", "created_at"),)
+    id: Mapped[UUID] = uuid_column()
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, default="minor", server_default="minor")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="investigating", server_default="investigating")
+    owner_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    details_safe: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    detected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class DataPrivacyRequest(Base):
+    __tablename__ = "data_privacy_requests"
+    __table_args__ = (
+        Index("ix_privacy_requests_user_status", "user_id", "status", "created_at"),
+        UniqueConstraint("user_id", "request_type", "idempotency_key", name="uq_privacy_request_idempotency"),
+        CheckConstraint("request_type IN ('export', 'delete')", name="ck_privacy_request_type"),
+        CheckConstraint("status IN ('queued', 'processing', 'completed', 'failed', 'cancelled')", name="ck_privacy_request_status"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    request_type: Mapped[str] = mapped_column(String(20), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="queued", server_default="queued")
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    result_storage_key: Mapped[str | None] = mapped_column(String(500))
+    error_code: Mapped[str | None] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

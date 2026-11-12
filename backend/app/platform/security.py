@@ -25,6 +25,13 @@ PLATFORM_PERMISSIONS: dict[str, frozenset[str]] = {
     "platform.audit.read": frozenset({"superadmin"}),
     "platform.health.read": frozenset({"admin", "superadmin"}),
     "platform.settings.update": frozenset({"superadmin"}),
+    "platform.operations.read": frozenset({"admin", "superadmin"}),
+    "platform.feature_flags.read": frozenset({"admin", "superadmin"}),
+    "platform.feature_flags.update": frozenset({"superadmin"}),
+    "platform.support.read": frozenset({"admin", "superadmin"}),
+    "platform.support.update": frozenset({"admin", "superadmin"}),
+    "platform.plans.read": frozenset({"admin", "superadmin"}),
+    "platform.plans.update": frozenset({"superadmin"}),
 }
 
 

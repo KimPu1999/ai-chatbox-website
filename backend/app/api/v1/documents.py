@@ -47,6 +47,7 @@ from app.services.documents import (
     storage_path,
     validate_upload,
 )
+from app.services.entitlements import get_entitlement_context
 from app.services.storage import StorageError
 
 router = APIRouter(tags=["documents"])
@@ -91,12 +92,27 @@ async def upload_document(
         )
     )
     count, total = quota_result.one()
-    if count >= settings.document_max_files_per_user:
+    entitlement = await get_entitlement_context(db, user.id)
+    limits = entitlement["limits"]
+    document_limit = min(
+        settings.document_max_files_per_user,
+        int(limits.get("document_count_limit", settings.document_max_files_per_user)),
+    )
+    storage_limit = min(
+        settings.document_max_storage_mb_per_user * 1024 * 1024,
+        int(
+            limits.get(
+                "storage_size_limit_bytes",
+                settings.document_max_storage_mb_per_user * 1024 * 1024,
+            )
+        ),
+    )
+    if count >= document_limit:
         raise HTTPException(
             status_code=413,
             detail={"code": "DOCUMENT_FILE_QUOTA", "message": "Document file quota reached"},
         )
-    if int(total or 0) >= settings.document_max_storage_mb_per_user * 1024 * 1024:
+    if int(total or 0) >= storage_limit:
         raise HTTPException(
             status_code=413,
             detail={"code": "DOCUMENT_STORAGE_QUOTA", "message": "Document storage quota reached"},

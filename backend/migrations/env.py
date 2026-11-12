@@ -13,6 +13,7 @@ from app.db import Base, _async_database_config
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+# ruff: noqa: E501
 _migration_url = os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL") or get_settings().database_url
 _migration_url, _migration_connect_args = _async_database_config(_migration_url)
 config.set_main_option("sqlalchemy.url", _migration_url)

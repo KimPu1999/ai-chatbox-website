@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import timedelta
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
@@ -51,6 +52,20 @@ async def require_verified_user(user: User = Depends(require_authenticated_user)
     if user.email_verified_at is None or user.account_status != AccountStatus.active:
         raise auth_error("AUTH_EMAIL_NOT_VERIFIED", "Email verification is required", 403)
     return user
+
+
+async def require_recent_reauthentication(
+    session: Session = Depends(get_current_session),
+) -> Session:
+    if session.created_at < utc_now() - timedelta(minutes=15):
+        raise auth_error(
+            "AUTH_RECENT_REAUTH_REQUIRED",
+            "Please sign in again before changing sensitive account data",
+            403,
+        )
+    if session.user.email_verified_at is None:
+        raise auth_error("AUTH_EMAIL_NOT_VERIFIED", "Email verification is required", 403)
+    return session
 
 
 def require_roles(*roles: UserRole) -> Callable:
