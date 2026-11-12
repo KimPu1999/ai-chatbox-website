@@ -84,3 +84,21 @@ For a bounded provider-free performance check, install `perf/requirements.txt`,
 set `PYCHAT_LOAD_TEST_ACK=isolated`, and use the Locust command in
 [`docs/performance-report.md`](docs/performance-report.md). Do not target a
 production service.
+## Phase 12: Teams and enterprise workspaces
+
+Phase 12 adds additive organization, membership, invitation, knowledge-base,
+organization subscription/usage, audit, tenant context and PostgreSQL RLS
+foundations. Existing personal data stays personal. Apply migrations only to an
+isolated or reviewed database:
+
+```bash
+cd backend
+DATABASE_URL="$DATABASE_URL" .venv/bin/alembic current
+DATABASE_URL="$DATABASE_URL" .venv/bin/alembic heads
+DATABASE_URL="$DATABASE_URL" .venv/bin/alembic upgrade head
+DATABASE_URL="$DATABASE_URL" .venv/bin/alembic check
+```
+
+Run the organization API locally with the existing backend and use the
+workspace pages at `/workspaces`. See [multi-tenant architecture](docs/multi-tenant-architecture.md),
+[tenant isolation](docs/tenant-isolation.md), and [RLS policies](docs/rls-policies.md).

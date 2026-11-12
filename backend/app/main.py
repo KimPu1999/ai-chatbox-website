@@ -13,6 +13,8 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.documents import router as documents_router
+from app.api.v1.organizations import invitation_router as organization_invitation_router
+from app.api.v1.organizations import router as organizations_router
 from app.api.v1.phase11 import router as phase11_router
 from app.api.v1.platform import router as platform_router
 from app.api.v1.router import router as v1_router
@@ -152,3 +154,5 @@ app.include_router(auth_router, prefix="/api/v1")
 app.include_router(documents_router, prefix="/api/v1")
 app.include_router(platform_router, prefix="/api/v1")
 app.include_router(phase11_router, prefix="/api/v1")
+app.include_router(organizations_router, prefix="/api/v1")
+app.include_router(organization_invitation_router, prefix="/api/v1")

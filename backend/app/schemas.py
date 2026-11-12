@@ -111,6 +111,7 @@ class ConversationRead(ConversationCreate):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     user_id: UUID
+    organization_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     archived_at: datetime | None = None

@@ -9,6 +9,7 @@ import { SharedConversationViewer } from './features/chat/components/SharedConve
 import { DocumentLibraryPage, DocumentViewerPage } from './features/documents/components';
 import { PlatformLoginPage, PlatformRoute, PlatformOverviewPage, UsersPage, UsageAnalyticsPage, CostsPage, ModelsPage, QuotasPage, StoragePage, AuditLogsPage, HealthPage, SettingsPage } from './features/platform/LazyPages';
 import { OperationsPage, PlanPage, PrivacyPage, SupportPage, UsagePage } from './features/phase11/LazyPages';
+import { WorkspacesPage, WorkspaceKnowledgePage, WorkspaceMembersPage, WorkspaceOverviewPage, WorkspacePlaceholderPage } from './features/workspaces/LazyPages';
 
 function PlatformLoading() {
   return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-300">Loading platform…</div>;
@@ -35,6 +36,16 @@ export default function App() {
       <Route path="/account/privacy" element={<PrivacyPage />} />
       <Route path="/support" element={<SupportPage />} />
       <Route path="/support/tickets" element={<SupportPage />} />
+      <Route path="/workspaces" element={<WorkspacesPage />} />
+      <Route path="/workspace/:organizationId/overview" element={<WorkspaceOverviewPage />} />
+      <Route path="/workspace/:organizationId/members" element={<WorkspaceMembersPage />} />
+      <Route path="/workspace/:organizationId/knowledge" element={<WorkspaceKnowledgePage />} />
+      <Route path="/workspace/:organizationId/invitations" element={<WorkspacePlaceholderPage />} />
+      <Route path="/workspace/:organizationId/chats" element={<WorkspacePlaceholderPage />} />
+      <Route path="/workspace/:organizationId/usage" element={<WorkspacePlaceholderPage />} />
+      <Route path="/workspace/:organizationId/billing" element={<WorkspacePlaceholderPage />} />
+      <Route path="/workspace/:organizationId/audit" element={<WorkspacePlaceholderPage />} />
+      <Route path="/workspace/:organizationId/settings" element={<WorkspacePlaceholderPage />} />
       <Route element={<AdminRoute />}><Route path="/admin/users" element={<AdminUsersPage />} /></Route>
     </Route>
     <Route element={<PlatformRoute />}>

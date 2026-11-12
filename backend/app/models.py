@@ -164,12 +164,14 @@ class Conversation(Base):
         Index("ix_conversations_user_updated", "user_id", "updated_at", "id"),
         Index("ix_conversations_user_folder", "user_id", "folder_id", "updated_at", "id"),
         Index("ix_conversations_user_pinned", "user_id", "pinned_at", "updated_at", "id"),
+        Index("ix_conversations_organization", "organization_id"),
         CheckConstraint("length(trim(title)) > 0", name="ck_conversations_title_not_blank"),
     )
     id: Mapped[UUID] = uuid_column()
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     title: Mapped[str] = mapped_column(
         String(200), nullable=False, default="New conversation", server_default="New conversation"
     )
@@ -305,6 +307,7 @@ class GenerationRun(Base):
         UniqueConstraint("user_id", "idempotency_key", name="uq_generation_runs_user_idempotency"),
         Index("ix_generation_runs_user_status", "user_id", "status", "created_at"),
         Index("ix_generation_runs_conversation_created", "conversation_id", "created_at"),
+        Index("ix_generation_runs_organization", "organization_id"),
         CheckConstraint(
             "status IN ('queued', 'streaming', 'completed', 'cancelled', 'failed', 'incomplete')",
             name="ck_generation_runs_status",
@@ -314,6 +317,7 @@ class GenerationRun(Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     conversation_id: Mapped[UUID] = mapped_column(nullable=False)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
     status: Mapped[str] = mapped_column(
@@ -352,12 +356,14 @@ class Message(Base):
             name="fk_messages_generation_run_user",
         ),
         Index("ix_messages_conversation_created", "conversation_id", "created_at", "id"),
+        Index("ix_messages_organization", "organization_id"),
         CheckConstraint("role IN ('user', 'assistant', 'system')", name="ck_messages_role"),
         CheckConstraint("length(content) > 0", name="ck_messages_content_not_empty"),
     )
     id: Mapped[UUID] = uuid_column()
     conversation_id: Mapped[UUID] = mapped_column(nullable=False)
     user_id: Mapped[UUID] = mapped_column(nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     generation_run_id: Mapped[UUID | None] = mapped_column(nullable=True)
@@ -405,6 +411,7 @@ class AIUsage(Base):
         ),
         UniqueConstraint("generation_run_id", name="uq_ai_usage_generation_run"),
         Index("ix_ai_usage_user_created", "user_id", "created_at", "id"),
+        Index("ix_ai_usage_organization", "organization_id"),
         CheckConstraint("prompt_tokens >= 0", name="ck_ai_usage_prompt_tokens_nonnegative"),
         CheckConstraint("completion_tokens >= 0", name="ck_ai_usage_completion_tokens_nonnegative"),
     )
@@ -412,6 +419,7 @@ class AIUsage(Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     message_id: Mapped[UUID | None] = mapped_column(nullable=True)
     generation_run_id: Mapped[UUID | None] = mapped_column(nullable=True)
     model: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -496,6 +504,7 @@ class Document(Base):
         UniqueConstraint("id", "user_id", name="uq_documents_id_user"),
         Index("ix_documents_user_created", "user_id", "created_at", "id"),
         Index("ix_documents_user_status", "user_id", "status", "created_at"),
+        Index("ix_documents_organization", "organization_id"),
         CheckConstraint("size_bytes >= 0", name="ck_documents_size_nonnegative"),
         CheckConstraint(
             "status IN ("
@@ -508,6 +517,7 @@ class Document(Base):
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     original_filename: Mapped[str] = mapped_column(String(255), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False)
     mime_type: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -541,10 +551,12 @@ class DocumentChunk(Base):
             name="fk_document_chunks_document_user",
         ),
         Index("ix_document_chunks_user_document", "user_id", "document_id", "chunk_index"),
+        Index("ix_document_chunks_organization", "organization_id"),
     )
     id: Mapped[UUID] = uuid_column()
     document_id: Mapped[UUID] = mapped_column(nullable=False)
     user_id: Mapped[UUID] = mapped_column(nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     page_number: Mapped[int | None] = mapped_column(Integer)
@@ -573,6 +585,7 @@ class DocumentProcessingJob(Base):
             name="fk_document_jobs_document_user",
         ),
         Index("ix_document_jobs_user_status", "user_id", "status", "created_at"),
+        Index("ix_document_processing_jobs_organization", "organization_id"),
         UniqueConstraint("document_id", "attempt_count", name="uq_document_jobs_attempt"),
         CheckConstraint("progress >= 0 AND progress <= 100", name="ck_document_jobs_progress"),
         CheckConstraint("attempt_count >= 0", name="ck_document_jobs_attempt_nonnegative"),
@@ -580,6 +593,7 @@ class DocumentProcessingJob(Base):
     id: Mapped[UUID] = uuid_column()
     document_id: Mapped[UUID] = mapped_column(nullable=False)
     user_id: Mapped[UUID] = mapped_column(nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="queued")
     progress: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
     attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
@@ -610,10 +624,12 @@ class ConversationDocument(Base):
         ),
         UniqueConstraint("conversation_id", "document_id", name="uq_conversation_documents"),
         Index("ix_conversation_documents_user", "attached_by", "created_at"),
+        Index("ix_conversation_documents_organization", "organization_id"),
     )
     conversation_id: Mapped[UUID] = mapped_column(primary_key=True)
     document_id: Mapped[UUID] = mapped_column(primary_key=True)
     attached_by: Mapped[UUID] = mapped_column(nullable=False)
+    organization_id: Mapped[UUID | None] = mapped_column(nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
@@ -997,3 +1013,139 @@ class DataPrivacyRequest(Base):
     error_code: Mapped[str | None] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Organization(Base):
+    __tablename__ = "organizations"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_organizations_slug"),
+        CheckConstraint("length(trim(name)) > 0", name="ck_organizations_name_not_blank"),
+        CheckConstraint("status IN ('active','suspended','deleted')", name="ck_organizations_status"),
+        Index("ix_organizations_owner_status", "owner_id", "status", "created_at"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500))
+    logo_url: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class OrganizationMembership(Base):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_org_memberships_org_user"),
+        CheckConstraint("role IN ('owner','admin','member','viewer')", name="ck_org_memberships_role"),
+        CheckConstraint("status IN ('active','suspended','removed')", name="ck_org_memberships_status"),
+        Index("ix_org_memberships_user_status", "user_id", "status", "organization_id"),
+        Index("ix_org_memberships_org_status", "organization_id", "status", "role"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="member", server_default="member")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class OrganizationInvitation(Base):
+    __tablename__ = "organization_invitations"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_org_invitations_token_hash"),
+        CheckConstraint("role IN ('admin','member','viewer')", name="ck_org_invitations_role"),
+        Index("ix_org_invitations_org_status", "organization_id", "expires_at", "accepted_at", "revoked_at"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    invited_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    email_normalized: Mapped[str] = mapped_column(String(320), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="member", server_default="member")
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    declined_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class OrganizationSetting(Base):
+    __tablename__ = "organization_settings"
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), primary_key=True)
+    settings: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class KnowledgeBase(Base):
+    __tablename__ = "knowledge_bases"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "normalized_name", name="uq_knowledge_bases_org_name"),
+        CheckConstraint("length(trim(name)) > 0", name="ck_knowledge_bases_name_not_blank"),
+        Index("ix_knowledge_bases_org_status", "organization_id", "status", "updated_at"),
+    )
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    created_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    normalized_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500))
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class KnowledgeBaseDocument(Base):
+    __tablename__ = "knowledge_base_documents"
+    __table_args__ = (UniqueConstraint("knowledge_base_id", "document_id", name="uq_kb_documents"), Index("ix_kb_documents_document", "document_id"))
+    id: Mapped[UUID] = uuid_column()
+    knowledge_base_id: Mapped[UUID] = mapped_column(ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), nullable=False)
+    attached_by: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class OrganizationSubscription(Base):
+    __tablename__ = "organization_subscriptions"
+    __table_args__ = (UniqueConstraint("organization_id", name="uq_org_subscriptions_org"), CheckConstraint("status IN ('active','trialing','past_due','canceled','incomplete')", name="ck_org_subscriptions_status"))
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    plan_id: Mapped[UUID] = mapped_column(ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False)
+    billing_owner_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="RESTRICT"), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active", server_default="active")
+    seat_limit: Mapped[int | None] = mapped_column(Integer)
+    current_period_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_period_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class OrganizationUsage(Base):
+    __tablename__ = "organization_usage"
+    __table_args__ = (UniqueConstraint("organization_id", "usage_date", "model", name="uq_org_usage_day_model"), Index("ix_org_usage_org_date", "organization_id", "usage_date"))
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    usage_date: Mapped[date] = mapped_column(nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    completed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    failed_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    estimated_cost: Mapped[float] = mapped_column(Numeric(18, 8), nullable=False, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class OrganizationAuditLog(Base):
+    __tablename__ = "organization_audit_logs"
+    __table_args__ = (Index("ix_org_audit_org_created", "organization_id", "created_at", "id"),)
+    id: Mapped[UUID] = uuid_column()
+    organization_id: Mapped[UUID] = mapped_column(ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False)
+    actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    target_type: Mapped[str | None] = mapped_column(String(60))
+    target_id: Mapped[UUID | None] = mapped_column(PGUUID(as_uuid=True))
+    metadata_safe: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
