@@ -1,3 +1,4 @@
+import asyncio
 import inspect
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -74,18 +75,21 @@ async def stream_response(
             store=False,
             max_output_tokens=get_settings().ai_max_output_tokens,
         )
-        async for event in stream:
-            event_type = getattr(event, "type", "")
-            if event_type == "response.output_text.delta":
-                yield ProviderEvent(type=event_type, delta=getattr(event, "delta", ""))
-            elif event_type in {"response.completed", "response.failed", "response.incomplete"}:
-                yield ProviderEvent(
-                    type=event_type,
-                    response=getattr(event, "response", None),
-                    error=getattr(event, "response", None),
-                )
-            elif event_type == "error":
-                yield ProviderEvent(type=event_type, error=event)
+        async with asyncio.timeout(get_settings().ai_timeout_seconds):
+            async for event in stream:
+                event_type = getattr(event, "type", "")
+                if event_type == "response.output_text.delta":
+                    yield ProviderEvent(type=event_type, delta=getattr(event, "delta", ""))
+                elif event_type in {"response.completed", "response.failed", "response.incomplete"}:
+                    yield ProviderEvent(
+                        type=event_type,
+                        response=getattr(event, "response", None),
+                        error=getattr(event, "response", None),
+                    )
+                elif event_type == "error":
+                    yield ProviderEvent(type=event_type, error=event)
+    except TimeoutError as exc:
+        raise ProviderRequestError("AI_PROVIDER_TIMEOUT") from exc
     except (APITimeoutError, APIConnectionError) as exc:
         raise ProviderRequestError("AI_PROVIDER_TIMEOUT") from exc
     except APIStatusError as exc:

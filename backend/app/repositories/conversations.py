@@ -105,7 +105,11 @@ async def list_messages_for_user(
 ) -> list[Message]:
     result = await db.scalars(
         select(Message)
-        .where(Message.user_id == user_id, Message.conversation_id == conversation_id)
+        .where(
+            Message.user_id == user_id,
+            Message.conversation_id == conversation_id,
+            Message.status != "failed",
+        )
         .order_by(Message.created_at.asc(), Message.id.asc())
         .limit(limit)
         .offset(offset)
