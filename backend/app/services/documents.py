@@ -7,10 +7,12 @@ uses a database-backed job and a local background task only when Redis is not
 configured for local development.
 """
 
+import asyncio
 import csv
 import hashlib
 import io
 import re
+import tempfile
 import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -31,6 +33,7 @@ from app.models import (
     QuotaPolicy,
     UserQuotaOverride,
 )
+from app.services import storage
 from app.services.ai_provider import ProviderRequestError, ProviderUnavailable, get_openai_client
 
 try:
@@ -158,11 +161,30 @@ def validate_upload(filename: str, data: bytes, declared_type: str | None) -> tu
 def save_private_bytes(user_id: UUID, filename: str, data: bytes) -> tuple[str, str, int]:
     safe_name = safe_filename(filename)
     key = f"{user_id}/{uuid4().hex}_{safe_name}"
+    if get_settings().document_storage_backend == "r2":
+        content_type = ALLOWED_DOCUMENTS.get(
+            Path(filename).suffix.lower(), "application/octet-stream"
+        )
+        storage.put_bytes(key, data, content_type)
+        return key, hashlib.sha256(data).hexdigest(), len(data)
     path = storage_path(key)
     path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     with path.open("xb") as output:
         output.write(data)
     return key, hashlib.sha256(data).hexdigest(), len(data)
+
+
+def read_private_bytes(storage_key: str) -> bytes:
+    if get_settings().document_storage_backend == "r2":
+        return storage.get_bytes(storage_key)
+    return storage_path(storage_key).read_bytes()
+
+
+def delete_private_bytes(storage_key: str) -> None:
+    if get_settings().document_storage_backend == "r2":
+        storage.delete_object(storage_key)
+        return
+    storage_path(storage_key).unlink(missing_ok=True)
 
 
 def _read_text(data: bytes) -> str:
@@ -364,8 +386,24 @@ async def process_document_by_id(document_id: UUID) -> None:
             job.started_at = utc_now()
             job.progress = 10
             await db.commit()
-            path = storage_path(document.storage_key)
-            parsed = parse_document(path, Path(document.original_filename).suffix.lower())
+            temporary_path: Path | None = None
+            if get_settings().document_storage_backend == "r2":
+                temporary = tempfile.NamedTemporaryFile(
+                    prefix="pychat-doc-",
+                    suffix=Path(document.original_filename).suffix,
+                    delete=False,
+                )
+                temporary.write(await asyncio.to_thread(read_private_bytes, document.storage_key))
+                temporary.close()
+                temporary_path = Path(temporary.name)
+                path = temporary_path
+            else:
+                path = storage_path(document.storage_key)
+            try:
+                parsed = parse_document(path, Path(document.original_filename).suffix.lower())
+            finally:
+                if temporary_path is not None:
+                    temporary_path.unlink(missing_ok=True)
             document.page_count = parsed.page_count
             if parsed.status == "ocr_required":
                 document.status = "ocr_required"

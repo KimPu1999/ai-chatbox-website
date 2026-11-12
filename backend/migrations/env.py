@@ -8,12 +8,14 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from app import models  # noqa: F401
 from app.core.config import get_settings
-from app.db import Base
+from app.db import Base, _async_database_config
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", get_settings().database_url))
+_migration_url = os.getenv("MIGRATION_DATABASE_URL") or os.getenv("DATABASE_URL") or get_settings().database_url
+_migration_url, _migration_connect_args = _async_database_config(_migration_url)
+config.set_main_option("sqlalchemy.url", _migration_url)
 target_metadata = Base.metadata
 
 # These objects were created by the Phase 1-7 migrations but are not modelled
@@ -89,6 +91,7 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=_migration_connect_args,
     )
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

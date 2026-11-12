@@ -1,0 +1,91 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: pychat
+      POSTGRES_PASSWORD: pychat
+      POSTGRES_DB: pychat
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pychat-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pychat -d pychat"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - pychat-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    profiles: ["mail"]
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
+
+  api:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DEBUG: "true"
+      DATABASE_URL: postgresql+asyncpg://pychat:pychat@postgres:5432/pychat
+      MIGRATION_DATABASE_URL: postgresql+asyncpg://pychat:pychat@postgres:5432/pychat
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:5173
+      TRUSTED_HOSTS: localhost,127.0.0.1,api
+      FRONTEND_URL: http://localhost:5173
+      API_PUBLIC_URL: http://localhost:8000
+      STORAGE_BACKEND: local
+      DOCUMENT_STORAGE_PATH: /data/private
+      EMAIL_PROVIDER: local
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+      SMTP_FROM_EMAIL: dev@pychat.local
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - pychat-private:/data/private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+
+  worker:
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+asyncpg://pychat:pychat@postgres:5432/pychat
+      REDIS_URL: redis://redis:6379/0
+      STORAGE_BACKEND: local
+      DOCUMENT_STORAGE_PATH: /data/private
+    volumes:
+      - pychat-private:/data/private
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["arq", "app.worker.WorkerSettings"]
+
+volumes:
+  pychat-postgres:
+  pychat-redis:
+  pychat-private:

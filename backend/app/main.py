@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from contextlib import asynccontextmanager
@@ -16,7 +17,7 @@ from app.api.v1.platform import router as platform_router
 from app.api.v1.router import router as v1_router
 from app.core.config import get_settings
 from app.core.logging import configure_logging
-from app.db import dispose_engine
+from app.db import check_database_connection, dispose_engine
 from app.services.ai_provider import close_openai_client
 
 settings = get_settings()
@@ -104,6 +105,43 @@ async def database_exception_handler(_: Request, exc: SQLAlchemyError) -> JSONRe
 @app.get("/health", tags=["health"])
 async def root_health() -> dict[str, str]:
     return {"status": "ok", "service": "pychat-api"}
+
+
+@app.get("/health/ready", tags=["health"])
+async def readiness_health() -> JSONResponse:
+    """Bounded readiness probe for Railway; it never calls paid providers."""
+    components: dict[str, str] = {}
+    try:
+        await asyncio.wait_for(check_database_connection(), timeout=2)
+        components["database"] = "ok"
+    except Exception:  # noqa: BLE001 - readiness must return a safe generic status
+        components["database"] = "error"
+
+    if settings.redis_url:
+        try:
+            import redis.asyncio as redis
+
+            client = redis.from_url(
+                settings.redis_url,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+            )
+            try:
+                await asyncio.wait_for(client.ping(), timeout=2)
+            finally:
+                await client.aclose()
+            components["redis"] = "ok"
+        except Exception:  # noqa: BLE001 - do not expose provider details
+            components["redis"] = "error"
+    else:
+        components["redis"] = "unconfigured"
+
+    ready = components["database"] == "ok" and components["redis"] != "error"
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={"status": "ready" if ready else "not_ready", "components": components},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 app.include_router(v1_router, prefix="/api/v1")

@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -38,12 +39,15 @@ from app.schemas import (
 )
 from app.services.documents import (
     DocumentError,
+    delete_private_bytes,
     enqueue_processing,
+    read_private_bytes,
     safe_filename,
     save_private_bytes,
     storage_path,
     validate_upload,
 )
+from app.services.storage import StorageError
 
 router = APIRouter(tags=["documents"])
 
@@ -65,7 +69,7 @@ async def upload_document(
 ) -> DocumentRead:
     ensure_trusted_origin(request)
     settings = get_settings()
-    if settings.document_storage_backend != "local":
+    if settings.document_storage_backend not in {"local", "r2"}:
         raise HTTPException(
             status_code=503,
             detail={
@@ -116,12 +120,23 @@ async def upload_document(
         extension, mime_type = validate_upload(
             file.filename or "document", bytes(data), file.content_type
         )
-        storage_key, digest, size = save_private_bytes(
-            user.id, file.filename or "document", bytes(data)
+        storage_key, digest, size = await asyncio.to_thread(
+            save_private_bytes,
+            user.id,
+            file.filename or "document",
+            bytes(data),
         )
     except DocumentError as exc:
         raise HTTPException(
             status_code=422, detail={"code": exc.code, "message": "Document validation failed"}
+        ) from exc
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "DOCUMENT_STORAGE_UNAVAILABLE",
+                "message": "Document storage is unavailable",
+            },
         ) from exc
     document = Document(
         user_id=user.id,
@@ -233,23 +248,29 @@ async def download_document(
     document_id: UUID,
     user: User = Depends(require_verified_user),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+) -> Response:
     document = await _owned_document(db, user.id, document_id)
     if document is None or document.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Document not found")
-    path = storage_path(document.storage_key)
-    if not path.is_file():
-        raise HTTPException(status_code=404, detail="Document file not found")
     safe_filename = document.original_filename.replace(chr(34), "_")
-    return FileResponse(
-        path,
-        media_type="application/octet-stream",
-        filename=document.original_filename,
-        headers={
-            "Cache-Control": "no-store",
-            "X-Content-Type-Options": "nosniff",
-            "Content-Disposition": f'attachment; filename="{safe_filename}"',
-        },
+    headers = {
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Disposition": f'attachment; filename="{safe_filename}"',
+    }
+    if get_settings().document_storage_backend == "local":
+        path = storage_path(document.storage_key)
+        if not path.is_file():
+            raise HTTPException(status_code=404, detail="Document file not found")
+        return FileResponse(path, media_type=document.mime_type, headers=headers)
+    try:
+        data = await asyncio.to_thread(read_private_bytes, document.storage_key)
+    except Exception as exc:  # noqa: BLE001 - do not disclose private storage details
+        raise HTTPException(status_code=404, detail="Document file not found") from exc
+    return Response(
+        content=data,
+        media_type=document.mime_type,
+        headers=headers,
     )
 
 
@@ -289,8 +310,8 @@ async def delete_document(
     document.status = "cancelled"
     await db.commit()
     try:
-        storage_path(document.storage_key).unlink(missing_ok=True)
-    except OSError:
+        await asyncio.to_thread(delete_private_bytes, document.storage_key)
+    except Exception:
         pass
     return Response(status_code=204)
 

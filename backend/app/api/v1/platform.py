@@ -94,13 +94,13 @@ def _platform_cookie(response: Response, token: str) -> None:
     settings = get_settings()
     response.set_cookie(
         key=platform_cookie_name(), value=token, max_age=settings.session_max_age_seconds,
-        httponly=True, secure=settings.cookie_secure, samesite="lax", path="/"
+        httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/"
     )
 
 
 def _clear_platform_cookie(response: Response) -> None:
     settings = get_settings()
-    response.delete_cookie(key=platform_cookie_name(), httponly=True, secure=settings.cookie_secure, samesite="lax", path="/")
+    response.delete_cookie(key=platform_cookie_name(), httponly=True, secure=settings.cookie_secure, samesite=settings.cookie_samesite, path="/")
 
 
 def _date_bounds(query_range: str, start: date | None, end: date | None) -> tuple[datetime, datetime]:
@@ -156,7 +156,7 @@ async def platform_preflight(response: Response) -> dict[str, str]:
         max_age=300,
         httponly=False,
         secure=get_settings().cookie_secure,
-        samesite="lax",
+        samesite=get_settings().cookie_samesite,
         path="/",
     )
     no_store(response)

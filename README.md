@@ -64,6 +64,11 @@ performance limits, production blockers, and backup/recovery procedures are in
 [`docs/performance-report.md`](docs/performance-report.md), [`docs/production-readiness.md`](docs/production-readiness.md),
 and [`docs/backup-recovery.md`](docs/backup-recovery.md).
 
+Phase 10 production deployment configuration, Docker/Compose, Railway API and
+worker services, Neon migration procedures, Cloudflare R2 storage, Vercel
+configuration, launch gates and deployment blockers are documented in
+[`docs/deployment-readiness.md`](docs/deployment-readiness.md).
+
 The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 5 makes real provider calls only when `OPENAI_API_KEY` is configured. Phase 6 management APIs never broaden owner access and public share links expose immutable read-only snapshots only.
 
 For document processing with multiple workers, configure `REDIS_URL` and run `arq app.worker.WorkerSettings` from `backend`. Without an OpenAI key, uploads can be validated and parsed locally but embedding and grounded retrieval cannot complete. No paid OpenAI request is made by the test suite.

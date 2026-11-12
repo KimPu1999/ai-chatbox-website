@@ -1,0 +1,23 @@
+name: PyChat production smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "Deployed API base URL, for example https://api.example.com"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python deploy/smoke.py --base-url "${{ inputs.api_url }}"
