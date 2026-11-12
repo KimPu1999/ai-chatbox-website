@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import Conversation, ConversationFolder, Message
 from app.schemas import ConversationCreate, ConversationUpdate, MessageCreate
+from app.services.generation import recover_stale_runs
 
 
 async def list_for_user(
@@ -103,6 +104,10 @@ async def list_messages_for_user(
     limit: int = 50,
     offset: int = 0,
 ) -> list[Message]:
+    # A worker/process can disappear after the user message is committed. Run
+    # recovery before rendering history so stale assistant placeholders do not
+    # remain permanently in the conversation.
+    await recover_stale_runs(db, user_id)
     result = await db.scalars(
         select(Message)
         .where(

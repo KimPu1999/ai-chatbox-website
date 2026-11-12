@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from datetime import datetime
@@ -92,6 +93,7 @@ from app.services.generation import (
 )
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
 @router.get("/health", response_model=HealthResponse, tags=["health"])
@@ -691,6 +693,42 @@ async def _generation_stream(
     collected = ""
     completed = False
     last_heartbeat = time.monotonic()
+    last_event_type = "run.started"
+    started_at = time.monotonic()
+
+    async def fail_stream(error_code: str) -> None:
+        """Persist a terminal failure even after a provider/DB exception."""
+        try:
+            await db.rollback()
+            await finalize_message(db, assistant.id, collected, "failed")
+            await set_run_status(db, run.id, "failed", error_code=error_code)
+            commit_result = "persisted"
+        except Exception:  # noqa: BLE001 - never leak stream internals to clients
+            commit_result = "persistence_failed"
+            logger.exception(
+                "generation terminal persistence failed request_id=%s run_id=%s conversation_id=%s "
+                "event_type=%s duration=%.3f termination_reason=%s database_commit_result=%s",
+                getattr(request.state, "correlation_id", "unknown"),
+                run.id,
+                run.conversation_id,
+                last_event_type,
+                time.monotonic() - started_at,
+                error_code,
+                commit_result,
+            )
+        logger.info(
+            "generation terminated request_id=%s run_id=%s conversation_id=%s event_type=%s "
+            "duration=%.3f termination_reason=%s provider_status=%s database_commit_result=%s",
+            getattr(request.state, "correlation_id", "unknown"),
+            run.id,
+            run.conversation_id,
+            last_event_type,
+            time.monotonic() - started_at,
+            error_code,
+            "failed",
+            commit_result,
+        )
+
     try:
         await set_run_status(db, run.id, "streaming")
         if citations:
@@ -735,6 +773,7 @@ async def _generation_stream(
             instructions=instructions,
             input_items=context,
         ):
+            last_event_type = provider_event.type
             current = await db.get(GenerationRun, run.id)
             if current is None or current.status == "cancelled" or await request.is_disconnected():
                 await finalize_message(db, assistant.id, collected, "failed")
@@ -746,6 +785,13 @@ async def _generation_stream(
                     f"{run.id}:cancelled",
                 )
                 return
+            if provider_event.type == "heartbeat":
+                # Keep proxies and browsers from treating a quiet provider as a
+                # dead connection. This is a comment frame, so it has no app
+                # semantics and cannot be mistaken for a terminal event.
+                yield ": heartbeat\n\n"
+                last_heartbeat = time.monotonic()
+                continue
             if provider_event.type == "response.output_text.delta":
                 collected += provider_event.delta
                 sequence += 1
@@ -786,6 +832,17 @@ async def _generation_stream(
                 )
                 await set_run_status(db, run.id, "completed", provider_response_id=response_id)
                 completed = True
+                logger.info(
+                    "generation terminated request_id=%s run_id=%s conversation_id=%s "
+                    "event_type=%s "
+                    "duration=%.3f termination_reason=provider_completed provider_status=completed "
+                    "database_commit_result=persisted",
+                    getattr(request.state, "correlation_id", "unknown"),
+                    run.id,
+                    run.conversation_id,
+                    provider_event.type,
+                    time.monotonic() - started_at,
+                )
                 yield _sse(
                     "message.completed",
                     {"run_id": str(run.id), "message_id": str(assistant.id), "content": collected},
@@ -836,11 +893,23 @@ async def _generation_stream(
                 f"{run.id}:failed",
             )
     except ProviderRequestError as exc:
-        await finalize_message(db, assistant.id, collected, "failed")
-        await set_run_status(db, run.id, "failed", error_code=exc.code)
+        await fail_stream(exc.code)
         yield _sse(
             "run.failed", {"run_id": str(run.id), "error_code": exc.code}, f"{run.id}:failed"
         )
+    except Exception:  # noqa: BLE001 - convert unexpected generator failures to SSE
+        logger.exception(
+            "generation stream exception request_id=%s run_id=%s conversation_id=%s "
+            "event_type=%s duration=%.3f",
+            getattr(request.state, "correlation_id", "unknown"),
+            run.id,
+            run.conversation_id,
+            last_event_type,
+            time.monotonic() - started_at,
+        )
+        code = "AI_STREAM_INTERNAL_ERROR"
+        await fail_stream(code)
+        yield _sse("run.failed", {"run_id": str(run.id), "error_code": code}, f"{run.id}:failed")
     except asyncio.CancelledError:
         await finalize_message(db, assistant.id, collected, "failed")
         await set_run_status(db, run.id, "cancelled", error_code="SERVER_CANCELLED")
@@ -1028,5 +1097,36 @@ async def cancel_generation(
     if run.status in {"queued", "streaming"}:
         await set_run_status(db, run.id, "cancelled", error_code="USER_CANCELLED")
     return GenerationRead(
-        id=run.id, conversation_id=run.conversation_id, model=run.model, status=run.status
+        id=run.id, conversation_id=run.conversation_id, model=run.model, status=run.status,
+        error_code=run.error_code,
+    )
+
+
+@router.get("/generations/{run_id}", response_model=GenerationRead, tags=["generation"])
+async def get_generation_status(
+    run_id: UUID,
+    user: User = Depends(require_verified_user),
+    db: AsyncSession = Depends(get_db),
+) -> GenerationRead:
+    run = await db.scalar(
+        select(GenerationRun).where(
+            GenerationRun.id == run_id,
+            GenerationRun.user_id == user.id,
+        )
+    )
+    if run is None:
+        raise HTTPException(status_code=404, detail="Generation not found")
+    message_id = await db.scalar(
+        select(Message.id).where(
+            Message.generation_run_id == run.id,
+            Message.user_id == user.id,
+        ).order_by(Message.created_at.desc())
+    )
+    return GenerationRead(
+        id=run.id,
+        conversation_id=run.conversation_id,
+        model=run.model,
+        status=run.status,
+        message_id=message_id,
+        error_code=run.error_code,
     )

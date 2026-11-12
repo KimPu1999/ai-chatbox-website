@@ -92,6 +92,7 @@ class GenerationRead(BaseModel):
     model: str
     status: str
     message_id: UUID | None = None
+    error_code: str | None = None
 
 
 class UsageRead(BaseModel):

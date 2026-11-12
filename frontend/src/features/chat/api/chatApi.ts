@@ -35,11 +35,12 @@ export async function streamGeneration(conversationId: string, body: { content?:
   const response = await fetch(`/api/v1/conversations/${conversationId}/${regenerate ? 'regenerate' : 'generate'}`, { method: 'POST', credentials: 'include', signal, headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body: JSON.stringify(body) });
   if (!response.ok) { const data = await response.json().catch(() => null); const detail = data?.detail; throw new Error(typeof detail === 'string' ? detail : detail?.message || 'Generation request failed'); }
   if (!response.body) throw new Error('The server did not provide a stream');
-  const reader = response.body.getReader(); const decoder = new TextDecoder(); let buffer = ''; let block = '';
-  const dispatch = () => { if (!block.trim()) return; try { const parsed = parseSseBlock(block); if (parsed) handlers.onEvent(parsed.event, parsed.payload, parsed.id); } catch { throw new Error('Invalid streaming event'); } block = ''; };
+  const reader = response.body.getReader(); const decoder = new TextDecoder(); const seenEventIds = new Set<string>(); let buffer = ''; let block = '';
+  const dispatch = () => { if (!block.trim()) return; try { const parsed = parseSseBlock(block); if (parsed && (!parsed.id || !seenEventIds.has(parsed.id))) { if (parsed.id) seenEventIds.add(parsed.id); handlers.onEvent(parsed.event, parsed.payload, parsed.id); } } catch { throw new Error('Invalid streaming event'); } block = ''; };
   const consume = (chunk: string) => { buffer += chunk; const lines = buffer.split(/\r?\n/); buffer = lines.pop() || ''; for (const line of lines) { if (!line) { dispatch(); continue; } block += `${line}\n`; } };
   while (true) { const { value, done } = await reader.read(); if (done) break; consume(decoder.decode(value, { stream: true })); }
   consume(decoder.decode()); if (buffer) consume('\n'); dispatch();
 }
 
 export async function cancelGeneration(runId: string) { return (await api.post<{ id: string; status: string }>(`/generations/${runId}/cancel`)).data; }
+export async function getGenerationStatus(runId: string) { return (await api.get<{ id: string; conversation_id: string; model: string; status: string; message_id?: string | null; error_code?: string | null }>(`/generations/${runId}`)).data; }

@@ -103,6 +103,26 @@ class Settings(BaseSettings):
     privacy_export_retention_days: int = Field(default=7, gt=0, le=365)
     account_deletion_grace_days: int = Field(default=30, ge=0, le=365)
     sso_feature_enabled: bool = False
+    # Phase 13 agent runtime. These settings only configure the future agent
+    # boundary; they do not enable arbitrary tool execution by themselves.
+    agents_enabled: bool = Field(default=False, validation_alias=AliasChoices("AGENTS_ENABLED"))
+    agent_runtime: Literal["responses"] = Field(default="responses", validation_alias=AliasChoices("AGENT_RUNTIME"))
+    agent_max_steps: int = Field(default=12, ge=1, le=100, validation_alias=AliasChoices("AGENT_MAX_STEPS"))
+    agent_max_tool_calls: int = Field(default=20, ge=0, le=200, validation_alias=AliasChoices("AGENT_MAX_TOOL_CALLS"))
+    agent_max_runtime_seconds: int = Field(default=300, ge=1, le=3_600, validation_alias=AliasChoices("AGENT_MAX_RUNTIME_SECONDS"))
+    agent_max_concurrent_runs: int = Field(default=2, ge=1, le=50, validation_alias=AliasChoices("AGENT_MAX_CONCURRENT_RUNS"))
+    agent_read_only_tools_only: bool = Field(default=True, validation_alias=AliasChoices("AGENT_READ_ONLY_TOOLS_ONLY"))
+    agent_external_tools_enabled: bool = Field(default=False, validation_alias=AliasChoices("AGENT_EXTERNAL_TOOLS_ENABLED"))
+    agent_require_write_approval: bool = Field(default=True, validation_alias=AliasChoices("AGENT_REQUIRE_WRITE_APPROVAL"))
+    agent_max_tool_output_bytes: int = Field(default=65_536, ge=1_024, le=10_000_000, validation_alias=AliasChoices("AGENT_MAX_TOOL_OUTPUT_BYTES"))
+    agent_approval_expires_hours: int = Field(default=24, ge=1, le=168, validation_alias=AliasChoices("AGENT_APPROVAL_EXPIRES_HOURS"))
+    agent_high_risk_mfa_required: bool = Field(default=True, validation_alias=AliasChoices("AGENT_HIGH_RISK_MFA_REQUIRED"))
+    workflows_enabled: bool = Field(default=False, validation_alias=AliasChoices("WORKFLOWS_ENABLED"))
+    workflow_manual_triggers_enabled: bool = Field(default=True, validation_alias=AliasChoices("WORKFLOW_MANUAL_TRIGGERS_ENABLED"))
+    workflow_scheduled_triggers_enabled: bool = Field(default=False, validation_alias=AliasChoices("WORKFLOW_SCHEDULED_TRIGGERS_ENABLED"))
+    workflow_webhook_triggers_enabled: bool = Field(default=False, validation_alias=AliasChoices("WORKFLOW_WEBHOOK_TRIGGERS_ENABLED"))
+    agent_redis_queue: str = Field(default="pychat-agent-runs", min_length=1, max_length=100, validation_alias=AliasChoices("AGENT_REDIS_QUEUE"))
+    agent_audit_logging_enabled: bool = Field(default=True, validation_alias=AliasChoices("AGENT_AUDIT_LOGGING_ENABLED"))
 
     model_config = SettingsConfigDict(
         env_file=".env",

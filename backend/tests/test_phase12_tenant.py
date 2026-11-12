@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 
 import pytest
 
-from app.tenant_schemas import InvitationCreate, OrganizationCreate
 from app.tenancy.permissions import has_permission
+from app.tenant_schemas import InvitationCreate, OrganizationCreate
 
 
 def test_workspace_slug_and_names_are_normalized() -> None:

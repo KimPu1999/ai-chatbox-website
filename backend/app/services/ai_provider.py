@@ -28,6 +28,7 @@ class ProviderEvent:
 
 
 _client: AsyncOpenAI | None = None
+STREAM_HEARTBEAT_SECONDS = 15.0
 
 
 def get_openai_client() -> AsyncOpenAI:
@@ -66,6 +67,7 @@ async def stream_response(
     *, model: str, instructions: str, input_items: list[dict[str, str]]
 ) -> AsyncIterator[ProviderEvent]:
     stream = None
+    pending_event: asyncio.Task[Any] | None = None
     try:
         stream = await get_openai_client().responses.create(
             model=model,
@@ -75,19 +77,42 @@ async def stream_response(
             store=False,
             max_output_tokens=get_settings().ai_max_output_tokens,
         )
-        async with asyncio.timeout(get_settings().ai_timeout_seconds):
-            async for event in stream:
-                event_type = getattr(event, "type", "")
-                if event_type == "response.output_text.delta":
-                    yield ProviderEvent(type=event_type, delta=getattr(event, "delta", ""))
-                elif event_type in {"response.completed", "response.failed", "response.incomplete"}:
-                    yield ProviderEvent(
-                        type=event_type,
-                        response=getattr(event, "response", None),
-                        error=getattr(event, "response", None),
-                    )
-                elif event_type == "error":
-                    yield ProviderEvent(type=event_type, error=event)
+        # A per-read timeout lets the application send SSE heartbeats while the
+        # provider is quiet, while the deadline still bounds the complete call.
+        iterator = stream.__aiter__()
+        deadline = asyncio.get_running_loop().time() + get_settings().ai_timeout_seconds
+        while True:
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                raise ProviderRequestError("AI_PROVIDER_TIMEOUT")
+            if pending_event is None:
+                pending_event = asyncio.create_task(iterator.__anext__())
+            done, _ = await asyncio.wait(
+                {pending_event}, timeout=min(STREAM_HEARTBEAT_SECONDS, remaining)
+            )
+            if not done:
+                yield ProviderEvent(type="heartbeat")
+                continue
+            try:
+                event = pending_event.result()
+            except StopAsyncIteration:
+                return
+            finally:
+                pending_event = None
+
+            event_type = getattr(event, "type", "")
+            if event_type == "response.output_text.delta":
+                yield ProviderEvent(type=event_type, delta=getattr(event, "delta", ""))
+            elif event_type in {"response.completed", "response.failed", "response.incomplete"}:
+                yield ProviderEvent(
+                    type=event_type,
+                    response=getattr(event, "response", None),
+                    error=getattr(event, "response", None),
+                )
+            elif event_type == "error":
+                yield ProviderEvent(type=event_type, error=event)
+            # response.output_text.done only marks the text part of a response.
+            # The application waits for response.completed before finalizing.
     except TimeoutError as exc:
         raise ProviderRequestError("AI_PROVIDER_TIMEOUT") from exc
     except (APITimeoutError, APIConnectionError) as exc:
@@ -99,6 +124,8 @@ async def stream_response(
             raise ProviderRequestError("AI_PROVIDER_UNAVAILABLE") from exc
         raise ProviderRequestError("AI_PROVIDER_REQUEST_FAILED") from exc
     finally:
+        if pending_event is not None:
+            pending_event.cancel()
         if stream is not None and hasattr(stream, "close"):
             result = stream.close()
             if inspect.isawaitable(result):
