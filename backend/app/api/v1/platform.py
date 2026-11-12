@@ -14,7 +14,7 @@ from sqlalchemy import Date, case, desc, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import ensure_trusted_origin
-from app.auth.rate_limit import enforce_rate_limit
+from app.auth.rate_limit import enforce_rate_limit_async
 from app.auth.security import generate_token, hash_token, token_matches, utc_now, verify_password
 from app.auth.service import create_session, record_audit
 from app.core.config import get_settings
@@ -169,7 +169,7 @@ async def platform_login(payload: PlatformLoginRequest, request: Request, respon
     preflight = request.cookies.get(PREAUTH_CSRF_COOKIE)
     if not preflight or not x_csrf_token or not hmac.compare_digest(preflight, x_csrf_token):
         raise HTTPException(status_code=403, detail={"code": "AUTH_CSRF_INVALID", "message": "Invalid CSRF token"})
-    enforce_rate_limit(request, "platform-login", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(request, "platform-login", get_settings().auth_rate_limit_per_minute)
     user = await db.scalar(select(User).where(User.email_normalized == normalize_email(payload.email)))
     if not user or not user.password_hash or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail={"code": "PLATFORM_INVALID_CREDENTIALS", "message": "Invalid email or password"})

@@ -14,7 +14,7 @@ from app.auth.dependencies import (
     session_cookie_name,
 )
 from app.auth.email import email_service
-from app.auth.rate_limit import enforce_rate_limit
+from app.auth.rate_limit import enforce_rate_limit_async
 from app.auth.schemas import (
     AdminUserResponse,
     AdminUserRoleRequest,
@@ -97,7 +97,7 @@ async def register(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "register", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(request, "register", get_settings().auth_rate_limit_per_minute)
     try:
         validate_password(payload.password)
     except ValueError as exc:
@@ -151,7 +151,7 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ) -> User:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "login", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(request, "login", get_settings().auth_rate_limit_per_minute)
     user = await db.scalar(
         select(User).where(User.email_normalized == normalize_email(str(payload.email)))
     )
@@ -240,7 +240,9 @@ async def verify_email(
     payload: TokenRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> AuthMessage:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "verify-email", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(
+        request, "verify-email", get_settings().auth_rate_limit_per_minute
+    )
     token_row = await db.scalar(
         select(EmailVerificationToken)
         .where(EmailVerificationToken.token_hash == hash_token(payload.token))
@@ -271,7 +273,9 @@ async def resend_verification(
     payload: EmailRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> AuthMessage:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "resend-verification", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(
+        request, "resend-verification", get_settings().auth_rate_limit_per_minute
+    )
     user = await db.scalar(
         select(User).where(User.email_normalized == normalize_email(str(payload.email)))
     )
@@ -292,7 +296,9 @@ async def forgot_password(
     payload: EmailRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> AuthMessage:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "forgot-password", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(
+        request, "forgot-password", get_settings().auth_rate_limit_per_minute
+    )
     user = await db.scalar(
         select(User).where(User.email_normalized == normalize_email(str(payload.email)))
     )
@@ -317,7 +323,9 @@ async def reset_password(
     db: AsyncSession = Depends(get_db),
 ) -> AuthMessage:
     ensure_trusted_origin(request)
-    enforce_rate_limit(request, "reset-password", get_settings().auth_rate_limit_per_minute)
+    await enforce_rate_limit_async(
+        request, "reset-password", get_settings().auth_rate_limit_per_minute
+    )
     try:
         validate_password(payload.password)
     except ValueError as exc:

@@ -76,13 +76,12 @@ def uuid_column() -> Mapped[UUID]:
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
+        UniqueConstraint("email_normalized", name="uq_users_email_normalized"),
         CheckConstraint("length(email_normalized) > 3", name="ck_users_email_normalized_length"),
     )
     id: Mapped[UUID] = uuid_column()
     email: Mapped[str] = mapped_column(String(320), nullable=False)
-    email_normalized: Mapped[str] = mapped_column(
-        String(320), unique=True, index=True, nullable=False
-    )
+    email_normalized: Mapped[str] = mapped_column(String(320), nullable=False)
     password_hash: Mapped[str | None] = mapped_column(String(255))
     display_name: Mapped[str | None] = mapped_column(String(120))
     role: Mapped[str] = mapped_column(

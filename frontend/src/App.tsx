@@ -1,3 +1,4 @@
+import { Suspense } from 'react';
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider } from './auth/AuthProvider';
 import { AdminRoute, ProtectedRoute } from './auth/guards';
@@ -6,10 +7,14 @@ import { AccountSecurityPage, AdminUsersPage } from './auth/secure-pages';
 import { ChatPage } from './features/chat/pages/ChatPage';
 import { SharedConversationViewer } from './features/chat/components/SharedConversationViewer';
 import { DocumentLibraryPage, DocumentViewerPage } from './features/documents/components';
-import { PlatformLoginPage, PlatformRoute, PlatformOverviewPage, UsersPage, UsageAnalyticsPage, CostsPage, ModelsPage, QuotasPage, StoragePage, AuditLogsPage, HealthPage, SettingsPage } from './features/platform/pages';
+import { PlatformLoginPage, PlatformRoute, PlatformOverviewPage, UsersPage, UsageAnalyticsPage, CostsPage, ModelsPage, QuotasPage, StoragePage, AuditLogsPage, HealthPage, SettingsPage } from './features/platform/LazyPages';
+
+function PlatformLoading() {
+  return <div className="grid min-h-screen place-items-center bg-slate-50 text-sm text-slate-500 dark:bg-slate-950 dark:text-slate-300">Loading platform…</div>;
+}
 
 export default function App() {
-  return <BrowserRouter><AuthProvider><Routes>
+  return <BrowserRouter><AuthProvider><Suspense fallback={<PlatformLoading />}><Routes>
     <Route path="/login" element={<LoginPage />} />
     <Route path="/register" element={<RegisterPage />} />
     <Route path="/verify-email" element={<VerifyEmailPage />} />
@@ -39,5 +44,5 @@ export default function App() {
       <Route path="/platform/settings" element={<SettingsPage />} />
     </Route>
     <Route path="*" element={<Navigate to="/chat" replace />} />
-  </Routes></AuthProvider></BrowserRouter>;
+  </Routes></Suspense></AuthProvider></BrowserRouter>;
 }

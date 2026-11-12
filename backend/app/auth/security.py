@@ -40,7 +40,10 @@ async def is_breached_password(password: str) -> bool:
     settings = get_settings()
     if not settings.password_breach_check_enabled:
         return False
-    digest = sha1(password.encode("utf-8")).hexdigest().upper()
+    # HIBP's k-anonymity range API requires SHA-1. This digest is never used
+    # as a password hash or authentication token; explicitly mark that fact
+    # for Python and static security scanners.
+    digest = sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
     try:
         async with httpx.AsyncClient(timeout=2.5) as client:
             response = await client.get(

@@ -16,19 +16,70 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", get_settings().database_url))
 target_metadata = Base.metadata
 
+# These objects were created by the Phase 1-7 migrations but are not modelled
+# with identical names/types today (for example, composite ownership FKs now
+# replace the original single-column FK in the ORM). They are intentionally
+# preserved in the database. Keeping this small, named allowlist makes
+# ``alembic check`` useful without proposing destructive drops or JSON/JSONB
+# rewrites for historical data.
+_KNOWN_BASELINE_DRIFT = {
+    ("index", "ai_usage", "ix_ai_usage_user_id"),
+    ("foreign_key_constraint", "ai_usage", "ai_usage_message_id_fkey"),
+    ("index", "attachments", "ix_attachments_user_id"),
+    ("foreign_key_constraint", "attachments", "attachments_message_id_fkey"),
+    ("unique_constraint", "conversation_documents", "uq_conversation_documents"),
+    ("index", "conversations", "ix_conversations_search_vector"),
+    ("index", "conversations", "ix_conversations_user_deleted_updated"),
+    ("index", "conversations", "ix_conversations_user_id"),
+    ("index", "document_chunks", "ix_document_chunks_embedding_hnsw"),
+    ("index", "messages", "ix_messages_conversation_id"),
+    ("index", "messages", "ix_messages_search_vector"),
+    ("foreign_key_constraint", "messages", "messages_conversation_id_fkey"),
+    ("index", "sessions", "ix_sessions_user_id"),
+    ("index", "users", "ix_users_email"),
+    ("index", "users", "ix_users_status_role"),
+    ("unique_constraint", "users", "users_email_key"),
+    ("unique_constraint", "users", "uq_users_email_normalized"),
+}
+_KNOWN_TYPE_BASELINE_DRIFT = {
+    ("document_chunks", "source_locator"),
+    ("messages", "citations"),
+}
+
+
+def include_object(object_, name, type_, reflected, compare_to):
+    table_name = getattr(getattr(object_, "table", None), "name", None)
+    if (type_, table_name, name) in _KNOWN_BASELINE_DRIFT:
+        return False
+    return True
+
+
+def compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    table_name = getattr(getattr(metadata_column, "table", None), "name", None)
+    if (table_name, metadata_column.name) in _KNOWN_TYPE_BASELINE_DRIFT:
+        return False
+    return None
+
 
 def run_migrations_offline() -> None:
     context.configure(
         url=config.get_main_option("sqlalchemy.url"),
         target_metadata=target_metadata,
         literal_binds=True,
+        include_object=include_object,
+        compare_type=compare_type,
     )
     with context.begin_transaction():
         context.run_migrations()
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        include_object=include_object,
+        compare_type=compare_type,
+    )
     with context.begin_transaction():
         context.run_migrations()
 

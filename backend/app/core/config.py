@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://pychat:pychat@localhost:5432/pychat"
     test_database_url: str = "sqlite+aiosqlite:///:memory:"
     allowed_origins: list[str] = ["http://localhost:5173"]
+    trusted_hosts: list[str] = ["localhost", "127.0.0.1", "testserver", "test"]
     openai_api_key: str | None = None
     openai_model: str = "gpt-4o-mini"
     ai_timeout_seconds: float = Field(default=60.0, gt=0, le=300)
@@ -77,6 +78,13 @@ class Settings(BaseSettings):
             return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
+    @field_validator("trusted_hosts", mode="before")
+    @classmethod
+    def parse_trusted_hosts(cls, value: str | list[str]) -> list[str]:
+        if isinstance(value, str):
+            return [host.strip() for host in value.split(",") if host.strip()]
+        return value
+
     @field_validator("debug", mode="before")
     @classmethod
     def parse_debug(cls, value: bool | str) -> bool:
@@ -88,6 +96,13 @@ class Settings(BaseSettings):
     def validate_production_cookie(self) -> "Settings":
         if self.environment.lower() in {"production", "staging"} and not self.cookie_secure:
             raise ValueError("COOKIE_SECURE must be true outside local development")
+        if "*" in self.trusted_hosts:
+            raise ValueError("TRUSTED_HOSTS cannot contain a wildcard")
+        if self.environment.lower() in {"production", "staging"} and not any(
+            host not in {"localhost", "127.0.0.1", "testserver", "test"}
+            for host in self.trusted_hosts
+        ):
+            raise ValueError("TRUSTED_HOSTS must include an explicit deployment host")
         return self
 
     @model_validator(mode="after")

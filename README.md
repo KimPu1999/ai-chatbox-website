@@ -41,7 +41,7 @@ The API is available at `http://localhost:8000`, with Swagger UI at `/docs` and 
 (cd frontend && npm run typecheck && npm run build && npm run test)
 ```
 
-The database integration tests require a disposable PostgreSQL database. Set `TEST_DATABASE_URL` to its `postgresql+asyncpg://...` URL before running `pytest`; the fixture creates and drops the schema in that database for each test. Never point it at a shared or production database.
+The database integration tests require a disposable PostgreSQL database with pgvector. Set `TEST_DATABASE_URL` to its `postgresql+asyncpg://...` URL before running `pytest`; the fail-closed fixture requires a database name ending in `_test`, `_testing`, or `_phase9`, runs `alembic upgrade head`, and truncates only that guarded test database. Never point it at a shared, development, or production database.
 
 The full table, relationship, ownership, constraint, and migration notes are in [`docs/database-schema.md`](docs/database-schema.md).
 
@@ -57,6 +57,18 @@ Phase 7 document upload, private storage, extraction, pgvector indexing, grounde
 
 Phase 8 platform administration, MFA, permission enforcement, usage/cost analytics, quotas, storage monitoring, audit logs, health, and the bootstrap procedure are documented in [`docs/platform-admin.md`](docs/platform-admin.md), [`docs/platform-security.md`](docs/platform-security.md), and [`docs/usage-cost-accounting.md`](docs/usage-cost-accounting.md).
 
+Phase 9 audit findings, test infrastructure, OWASP review, CI quality gate,
+performance limits, production blockers, and backup/recovery procedures are in
+[`docs/phase9-audit.md`](docs/phase9-audit.md), [`docs/testing-strategy.md`](docs/testing-strategy.md),
+[`docs/owasp-assessment.md`](docs/owasp-assessment.md), [`docs/ci-cd.md`](docs/ci-cd.md),
+[`docs/performance-report.md`](docs/performance-report.md), [`docs/production-readiness.md`](docs/production-readiness.md),
+and [`docs/backup-recovery.md`](docs/backup-recovery.md).
+
 The backend exposes `GET /health` for service status and `GET /api/v1/health` for versioned API status. Phase 5 makes real provider calls only when `OPENAI_API_KEY` is configured. Phase 6 management APIs never broaden owner access and public share links expose immutable read-only snapshots only.
 
 For document processing with multiple workers, configure `REDIS_URL` and run `arq app.worker.WorkerSettings` from `backend`. Without an OpenAI key, uploads can be validated and parsed locally but embedding and grounded retrieval cannot complete. No paid OpenAI request is made by the test suite.
+
+For a bounded provider-free performance check, install `perf/requirements.txt`,
+set `PYCHAT_LOAD_TEST_ACK=isolated`, and use the Locust command in
+[`docs/performance-report.md`](docs/performance-report.md). Do not target a
+production service.

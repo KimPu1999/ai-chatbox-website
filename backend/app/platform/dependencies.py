@@ -53,7 +53,10 @@ def require_platform_permission(permission: str, *, step_up: bool = False) -> Ca
         user = session.user
         if not has_permission(user.role, permission):
             raise auth_error("PLATFORM_FORBIDDEN", "You do not have platform permission", 403)
-        if step_up and not mfa_is_recent(session.mfa_verified_at):
+        # Every platform data endpoint requires an MFA-verified platform session.
+        # Sensitive mutations additionally use the same recent-MFA check through
+        # ``step_up``; enrollment and verification remain the only pre-MFA flows.
+        if not mfa_is_recent(session.mfa_verified_at):
             raise auth_error("PLATFORM_MFA_STEP_UP_REQUIRED", "Recent MFA verification is required", 403)
         return session
 

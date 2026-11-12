@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.dependencies import ensure_trusted_origin, require_csrf, require_verified_user
-from app.auth.rate_limit import enforce_rate_limit
+from app.auth.rate_limit import enforce_rate_limit_async
 from app.auth.security import verify_password
 from app.core.config import get_settings
 from app.db import check_database_connection, get_db
@@ -603,7 +603,7 @@ async def get_shared_conversation(
     password: str | None = Query(default=None, max_length=128),
     db: AsyncSession = Depends(get_db),
 ) -> SharedConversationRead:
-    enforce_rate_limit(request, "public-share", 20)
+    await enforce_rate_limit_async(request, "public-share", 20)
     share = await get_public_share(db, public_token)
     if share is None or (share.password_hash and not password):
         raise HTTPException(status_code=404, detail="Shared conversation not found")
@@ -864,7 +864,7 @@ async def _prepare_generation(
             detail={"code": "AI_QUOTA_EXCEEDED", "message": "Generation quota is disabled"},
         )
     if request_limit is not None:
-        enforce_rate_limit(request, "generate", request_limit)
+        await enforce_rate_limit_async(request, "generate", request_limit)
     if await get_owned_conversation(db, user.id, conversation_id) is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     daily_limit = limits["daily_token_limit"]
